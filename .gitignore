@@ -1,0 +1,4 @@
+.auth/
+.playwright-cli/
+bin/
+out/

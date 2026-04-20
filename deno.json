@@ -1,0 +1,30 @@
+{
+  "name": "@cliat/meta.ai",
+  "version": "0.2.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./cli": "./cli.ts"
+  },
+  "publish": {
+    "exclude": [
+      ".auth/",
+      ".playwright-cli/",
+      "bin/",
+      "history/",
+      "out/",
+      "sess.json"
+    ]
+  },
+  "tasks": {
+    "run": "deno run -A cli.ts",
+    "check": "deno check cli.ts mod.ts",
+    "fmt": "deno fmt",
+    "build": "deno compile -A -o bin/meta.ai cli.ts",
+    "publish:dry-run": "deno publish --dry-run"
+  },
+  "imports": {
+    "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",
+    "@std/path": "jsr:@std/path@^1.1.2"
+  }
+}
