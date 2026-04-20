@@ -1,8 +1,8 @@
-# meta.ai
+# meta-ai
 
-`@cliat/meta.ai` is a Deno package that exposes a reusable Meta AI client
+`@cliat/meta-ai` is a Deno package that exposes a reusable Meta AI client
 library and a thin CLI for authenticated image, animation, video, and history
-workflows.
+workflows. The installed CLI command is `meta-ai`.
 
 - `login` uses `playwright-cli` with a headed browser to capture storage state
 - later operational commands reuse the same explicit `--session-path`
@@ -19,8 +19,8 @@ deno task check
 deno task build
 ```
 
-The compile task writes the standalone binary to `./bin/meta.ai` on Unix-like
-systems and `.\bin\meta.ai.exe` on Windows.
+The compile task writes the standalone binary to `./bin/meta-ai` on Unix-like
+systems and `.\bin\meta-ai.exe` on Windows.
 
 Publish to JSR:
 
@@ -32,28 +32,28 @@ deno publish
 Run the published CLI directly:
 
 ```bash
-deno x jsr:@cliat/meta.ai/cli --help
+deno x jsr:@cliat/meta-ai/cli --help
 ```
 
 Install the CLI onto PATH with the intended command name:
 
 ```bash
-deno install -g -A --name meta.ai jsr:@cliat/meta.ai/cli
-meta.ai --help
+deno install -g -A --name meta-ai jsr:@cliat/meta-ai/cli
+meta-ai --help
 ```
 
 Run the compiled local binary:
 
 ```bash
-./bin/meta.ai --help
+./bin/meta-ai --help
 ```
 
-On Windows, run `.\bin\meta.ai.exe --help`.
+On Windows, run `.\bin\meta-ai.exe --help`.
 
 ## Library quick start
 
 ```ts
-import { MetaAiClient } from "jsr:@cliat/meta.ai";
+import { MetaAiClient } from "jsr:@cliat/meta-ai";
 
 const client = new MetaAiClient(storageState);
 const result = await client.createImage("a fox in snowfall", "1:1", 1);
@@ -84,8 +84,8 @@ intended to stay local.
 
 ```bash
 deno run -A ./cli.ts login --session-path ./.auth/meta-session.json
-meta.ai login --session-path ./.auth/meta-session.json
-deno x jsr:@cliat/meta.ai/cli login --session-path ./.auth/meta-session.json
+meta-ai login --session-path ./.auth/meta-session.json
+deno x jsr:@cliat/meta-ai/cli login --session-path ./.auth/meta-session.json
 ```
 
 Use the same `--session-path` on every later authenticated command.
@@ -103,7 +103,7 @@ Use the same `--session-path` on every later authenticated command.
 Generate and download an image:
 
 ```bash
-meta.ai image create \
+meta-ai image create \
   --session-path ./.auth/meta-session.json \
   --prompt "a cinematic close-up of a fox in snowfall" \
   --image-out out/fox \
@@ -113,7 +113,7 @@ meta.ai image create \
 Generate two images, animate both, extend both twice, and download all files:
 
 ```bash
-meta.ai image create \
+meta-ai image create \
   --session-path ./.auth/meta-session.json \
   --prompt "a neon koi fish in a dark pond" \
   --image-out out/koi \
@@ -128,7 +128,7 @@ Generate videos directly, extend every returned variation once, and download
 all of them:
 
 ```bash
-meta.ai video create \
+meta-ai video create \
   --session-path ./.auth/meta-session.json \
   --prompt "a paper airplane gliding through clouds" \
   --video-out out/plane \
@@ -139,7 +139,7 @@ meta.ai video create \
 Download all generated history media into a directory:
 
 ```bash
-meta.ai history download \
+meta-ai history download \
   --session-path ./.auth/meta-session.json \
   --out out/history
 ```
@@ -148,7 +148,7 @@ Download saved history media and then remove only the prompts whose files were
 written by that invocation:
 
 ```bash
-meta.ai history download \
+meta-ai history download \
   --session-path ./.auth/meta-session.json \
   --out out/history \
   --delete
@@ -157,7 +157,7 @@ meta.ai history download \
 Remove generated prompts from Meta history without downloading:
 
 ```bash
-meta.ai history clear \
+meta-ai history clear \
   --session-path ./.auth/meta-session.json \
   --force
 ```

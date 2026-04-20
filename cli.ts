@@ -419,7 +419,7 @@ export async function historyClearCommand(
 
 function buildCli() {
   return new Command()
-    .name("meta.ai")
+    .name("meta-ai")
     .version(VERSION)
     .description(
       "Meta AI media automation CLI. Run login --session-path <path> first, then reuse the same --session-path on every authenticated command.",
@@ -427,15 +427,15 @@ function buildCli() {
     .globalOption("--json", "Emit JSON output.")
     .example(
       "Bootstrap a session",
-      "meta.ai --json login --session-path ./.auth/meta-session.json",
+      "meta-ai --json login --session-path ./.auth/meta-session.json",
     )
     .example(
       "Reuse the saved session on later commands",
-      "meta.ai --json image create --session-path ./.auth/meta-session.json --prompt \"a fox in snowfall\" --image-out out/fox",
+      "meta-ai --json image create --session-path ./.auth/meta-session.json --prompt \"a fox in snowfall\" --image-out out/fox",
     )
     .example(
       "Download generated history and remove the prompts that produced the saved files",
-      "meta.ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
+      "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
     )
     .command("login")
     .description(
@@ -451,7 +451,7 @@ function buildCli() {
     })
     .example(
       "Save a reusable session",
-      "meta.ai login --session-path ./.auth/meta-session.json",
+      "meta-ai login --session-path ./.auth/meta-session.json",
     )
     .action(loginCommand)
     .reset()
@@ -494,11 +494,11 @@ function buildCli() {
         )
         .example(
           "Create one image",
-          'meta.ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1',
+          'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1',
         )
         .example(
           "Create and animate a batch",
-          'meta.ai --json image create --session-path ./.auth/meta-session.json --prompt "a neon koi fish in a dark pond" --image-out out/koi --count 2 --animate "slow water ripple and gentle camera drift" --video-out out/koi --extend 2',
+          'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a neon koi fish in a dark pond" --image-out out/koi --count 2 --animate "slow water ripple and gentle camera drift" --video-out out/koi --extend 2',
         )
         .action(imageCreateCommand),
     )
@@ -533,7 +533,7 @@ function buildCli() {
         )
         .example(
           "Create videos",
-          'meta.ai --json video create --session-path ./.auth/meta-session.json --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9',
+          'meta-ai --json video create --session-path ./.auth/meta-session.json --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9',
         )
         .action(videoCreateCommand),
     )
@@ -563,11 +563,11 @@ function buildCli() {
             )
             .example(
               "Download all generated media",
-              "meta.ai --json history download --session-path ./.auth/meta-session.json --out out/history",
+              "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history",
             )
             .example(
               "Download and then remove from Meta history",
-              "meta.ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
+              "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
             )
             .action(historyDownloadCommand),
         )
@@ -586,7 +586,7 @@ function buildCli() {
             )
             .example(
               "Clear generated history",
-              "meta.ai --json history clear --session-path ./.auth/meta-session.json --force",
+              "meta-ai --json history clear --session-path ./.auth/meta-session.json --force",
             )
             .action(historyClearCommand),
         ),
@@ -707,7 +707,7 @@ async function runLoginBootstrapWithPlaywrightCli(
   url: string,
 ): Promise<StorageState> {
   console.error("Opening Meta login browser via playwright-cli...");
-  const sessionName = generatePlaywrightCliSessionName("meta.ai-login");
+  const sessionName = generatePlaywrightCliSessionName("meta-ai-login");
   const tempStatePath = await Deno.makeTempFile({ suffix: ".json" });
 
   try {

@@ -4,34 +4,34 @@ CLI forms:
 
 ```bash
 deno run -A ./cli.ts --help
-./bin/meta.ai --help
-deno x jsr:@cliat/meta.ai/cli --help
-meta.ai --help
+./bin/meta-ai --help
+deno x jsr:@cliat/meta-ai/cli --help
+meta-ai --help
 ```
 
-On Windows, the compiled binary path is `.\bin\meta.ai.exe`.
+On Windows, the compiled binary path is `.\bin\meta-ai.exe`.
 
 Start with:
 
 ```bash
 npm install -g @playwright/cli@latest
 playwright-cli install-browser --browser=chrome
-meta.ai login --session-path ./.auth/meta-session.json
+meta-ai login --session-path ./.auth/meta-session.json
 ```
 
 For common media work:
 
 ```bash
-meta.ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1
-meta.ai --json video create --session-path ./.auth/meta-session.json --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9
-meta.ai --json history download --session-path ./.auth/meta-session.json --out out/history
-meta.ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete
-meta.ai --json history clear --session-path ./.auth/meta-session.json --force
+meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1
+meta-ai --json video create --session-path ./.auth/meta-session.json --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9
+meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history
+meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete
+meta-ai --json history clear --session-path ./.auth/meta-session.json --force
 ```
 
 Rules:
 
-- prefer `meta.ai` on PATH or `./bin/meta.ai` after `deno task build`; otherwise
+- prefer `meta-ai` on PATH or `./bin/meta-ai` after `deno task build`; otherwise
   use `deno run -A ./cli.ts`
 - install `playwright-cli` and its browser once before using `login`
 - use `login --session-path <path>` first, then reuse the same path on all later

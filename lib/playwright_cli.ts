@@ -51,7 +51,7 @@ export async function checkPlaywrightCliDependencies(): Promise<
     };
   }
 
-  const sessionName = generatePlaywrightCliSessionName("meta.ai-check");
+  const sessionName = generatePlaywrightCliSessionName("meta-ai-check");
   try {
     await openPlaywrightCliSession(sessionName, { url: "about:blank" });
     return {
