@@ -8,7 +8,7 @@ import {
 const GRAPHQL_ENDPOINT = "https://meta.ai/api/graphql";
 const META_REFERER = "https://meta.ai/";
 
-const DOC_SEND_MESSAGE_STREAM = "2f707e4a86f4b01adba97e1376cbdc14";
+const DOC_SEND_MESSAGE_STREAM = "aa858a331f5475c7ae2d75572b914fec";
 const DOC_BATCHED_GENERATION_STATUS = "9928a9b87ec492a16326f18925191c0f";
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const POLL_JITTER_MS = 500;
@@ -328,7 +328,6 @@ export class MetaAiClient {
         userUniqueMessageId: makeNumericMessageId(),
         turnId,
         mode: "create",
-        rewriteOptions: null,
         attachments: null,
         mentions: null,
         clippyIp: null,
@@ -530,6 +529,7 @@ function collectStatusRecords(
 function getFinalAssistantMessage(rawSse: string): AssistantMessage {
   const events = parseSseEvents(rawSse);
   const assistantMessages: AssistantMessage[] = [];
+  const graphqlErrors: string[] = [];
 
   for (const event of events) {
     if (event.event !== "next" || !event.data) {
@@ -537,6 +537,7 @@ function getFinalAssistantMessage(rawSse: string): AssistantMessage {
     }
 
     const payload = safeJsonParse(event.data);
+    graphqlErrors.push(...collectGraphqlErrorMessages(payload));
     const message = asOptionalRecord(payload?.data)?.sendMessageStream;
     if (!message || typeof message !== "object") {
       continue;
@@ -553,10 +554,32 @@ function getFinalAssistantMessage(rawSse: string): AssistantMessage {
   );
   const finalMessage = doneMessage ?? assistantMessages.at(-1);
   if (!finalMessage) {
+    if (graphqlErrors.length > 0) {
+      throw new Error(
+        `Meta API returned GraphQL errors: ${graphqlErrors.join("; ")}`,
+      );
+    }
+
     throw new Error("Meta did not return an assistant message.");
   }
 
   return finalMessage;
+}
+
+function collectGraphqlErrorMessages(
+  payload: Record<string, unknown> | null,
+): string[] {
+  const errors = payload?.errors;
+  if (!Array.isArray(errors)) {
+    return [];
+  }
+
+  return errors.map((error) => {
+    const record = asOptionalRecord(error);
+    const message = asOptionalString(record?.message);
+    const code = asOptionalString(asOptionalRecord(record?.extensions)?.code);
+    return code ? `${message ?? "Unknown GraphQL error"} (${code})` : message;
+  }).filter((message): message is string => !!message);
 }
 
 function parseSseEvents(raw: string): Array<{ event: string; data: string }> {

@@ -1,0 +1,19 @@
+{
+  "name": "@your-scope/your-tool",
+  "version": "0.1.0",
+  "license": "MIT",
+  "imports": {
+    "@cliffy/command": "jsr:@cliffy/command@^1.0.0"
+  },
+  "exports": {
+    ".": "./mod.ts",
+    "./cli": "./cli.ts"
+  },
+  "tasks": {
+    "run": "deno run -A cli.ts",
+    "check": "deno check cli.ts mod.ts",
+    "publish:dry-run": "deno publish --dry-run",
+    "publish": "deno publish",
+    "compile": "deno compile -A -o ./bin/tool cli.ts"
+  }
+}

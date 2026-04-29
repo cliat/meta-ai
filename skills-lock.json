@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "clifier": {
+      "source": "popra/skills",
+      "sourceType": "github",
+      "skillPath": "clifier/SKILL.md",
+      "computedHash": "d793a9d41d31bbb3bbaa7561f86aac8dbfd7b8a6c7a638696279eb6203b2a671"
+    }
+  }
+}
