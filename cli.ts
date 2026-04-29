@@ -1,4 +1,5 @@
 import { Command } from "@cliffy/command";
+import denoConfig from "./deno.json" with { type: "json" };
 import { downloadFile } from "./lib/download.ts";
 import {
   clearHistoryContent,
@@ -67,7 +68,7 @@ type HistoryClearOptions = AuthenticatedOptions & {
   force?: boolean;
 };
 
-const VERSION = "0.2.0";
+const VERSION = denoConfig.version;
 const MUTATION_PAUSE_MS = 5_000;
 const MUTATION_PAUSE_JITTER_MS = 2_000;
 const LOGIN_POLL_INTERVAL_MS = 1_000;
@@ -597,6 +598,11 @@ export async function runCli(args = Deno.args): Promise<void> {
   const json = args.includes("--json");
 
   try {
+    if (isRootVersionRequest(args)) {
+      console.log(VERSION);
+      return;
+    }
+
     await buildCli().parse(args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -607,6 +613,12 @@ export async function runCli(args = Deno.args): Promise<void> {
 
 if (import.meta.main) {
   await runCli();
+}
+
+function isRootVersionRequest(args: string[]): boolean {
+  const commandArgs = args.filter((arg) => arg !== "--json");
+  return commandArgs.length === 1 &&
+    (commandArgs[0] === "--version" || commandArgs[0] === "-V");
 }
 
 async function createClient(sessionPath: string): Promise<{
