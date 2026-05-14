@@ -176,7 +176,6 @@ export async function imageCreateCommand(
       {
         animationPrompt,
         conversationId: createResult.conversationId,
-        branchPath: createResult.branchPath,
         extendCount,
         outputVideo: outputVideo!,
       },
@@ -654,7 +653,6 @@ async function createImageAnimations(
   options: {
     animationPrompt: string;
     conversationId: string;
-    branchPath: string;
     extendCount: number;
     outputVideo: string;
   },
@@ -709,7 +707,6 @@ async function createImageAnimation(
     imageIndex: number;
     animationPrompt: string;
     conversationId: string;
-    branchPath: string;
     extendCount: number;
     videoPath: string;
   },
@@ -719,7 +716,6 @@ async function createImageAnimation(
     image,
     options.animationPrompt,
   );
-  let currentBranchPath = options.branchPath;
   let currentVideo = await pickFirstCompletedVideo(
     client,
     animatedDraft.videos,
@@ -729,12 +725,10 @@ async function createImageAnimation(
 
   for (let i = 0; i < options.extendCount; i += 1) {
     await pauseBetweenMutationJobs();
-    const extendedDraft = await client.extendVideo(
-      options.conversationId,
-      currentBranchPath,
+    const extendedDraft = await extendVideoWithLightbox(
+      sessionName,
       currentVideo,
     );
-    currentBranchPath = extendedDraft.branchPath;
     currentVideo = await pickFirstCompletedVideo(
       client,
       extendedDraft.videos,
@@ -769,7 +763,7 @@ async function createImageAnimation(
   };
 }
 
-type LightboxAnimateResult = {
+type LightboxMediaResult = {
   ok: boolean;
   before?: string;
   after?: string;
@@ -789,9 +783,12 @@ async function animateImageWithLightbox(
     `https://www.meta.ai/create/${image.id}`,
   );
 
-  const result = await runPlaywrightCliCodeJson<LightboxAnimateResult>(
+  const result = await runPlaywrightCliCodeJson<LightboxMediaResult>(
     sessionName,
-    await buildCustomAnimateCode(animationPrompt, image.id),
+    await buildLightboxAutomationCode("metaAiCustomAnimate", {
+      prompt: animationPrompt,
+      sourceMediaId: image.id,
+    }),
   );
 
   if (!result.ok || !result.videoId) {
@@ -802,33 +799,68 @@ async function animateImageWithLightbox(
   }
 
   return {
-    videos: [{
-      id: result.videoId,
-      url: null,
-      thumbnail: null,
-      prompt: animationPrompt,
-      sourceMedia: {
-        id: image.id,
-        url: image.url,
-        thumbnail: image.thumbnail ?? null,
-      },
-    }],
+    videos: [buildGeneratedVideoDraft(result.videoId, animationPrompt, image)],
   };
 }
 
-async function buildCustomAnimateCode(
-  prompt: string,
-  sourceMediaId: string,
+async function extendVideoWithLightbox(
+  sessionName: string,
+  video: CompletedVideo,
+): Promise<{ videos: GeneratedVideo[] }> {
+  await gotoPlaywrightCliSession(
+    sessionName,
+    `https://www.meta.ai/create/${video.id}`,
+  );
+
+  const result = await runPlaywrightCliCodeJson<LightboxMediaResult>(
+    sessionName,
+    await buildLightboxAutomationCode("metaAiExtendAnimation", {
+      sourceMediaId: video.id,
+    }),
+  );
+
+  if (!result.ok || !result.videoId) {
+    const detail = result.reason ? ` ${result.reason}` : "";
+    throw new Error(
+      `Meta video extend did not return a video media id.${detail}`,
+    );
+  }
+
+  return {
+    videos: [buildGeneratedVideoDraft(result.videoId, "Extend", video)],
+  };
+}
+
+async function buildLightboxAutomationCode(
+  functionName: "metaAiCustomAnimate" | "metaAiExtendAnimation",
+  input: Record<string, unknown>,
 ): Promise<string> {
   const scriptPath = await getCustomAnimateScriptPath();
-  const input = { prompt, sourceMediaId };
 
   return `async (page) => {
     await page.addScriptTag({ path: ${JSON.stringify(scriptPath)} });
     return await page.evaluate(async (input) => {
-      return await window.metaAiCustomAnimate(input);
+      return await window[${JSON.stringify(functionName)}](input);
     }, ${JSON.stringify(input)});
   }`;
+}
+
+function buildGeneratedVideoDraft(
+  id: string,
+  prompt: string,
+  sourceMedia: GeneratedImage | CompletedVideo,
+): GeneratedVideo {
+  return {
+    id,
+    url: null,
+    thumbnail: null,
+    prompt,
+    sourceMedia: {
+      id: sourceMedia.id,
+      url: sourceMedia.url,
+      thumbnail: sourceMedia.thumbnail ?? null,
+    },
+  };
 }
 
 async function getCustomAnimateScriptPath(): Promise<string> {

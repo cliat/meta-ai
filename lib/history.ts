@@ -266,14 +266,7 @@ async function fetchMediaLibraryPage(
 }> {
   const response = await fetch(META_GRAPHQL_URL, {
     method: "POST",
-    headers: {
-      "Accept": "multipart/mixed, application/json",
-      "Content-Type": "application/json",
-      "Cookie": auth.cookieHeader,
-      "Origin": "https://meta.ai",
-      "Referer": META_CREATE_URL,
-      "User-Agent": auth.userAgent,
-    },
+    headers: buildHistoryGraphqlHeaders(auth),
     body: JSON.stringify({
       doc_id: DOC_MEDIA_LIBRARY_FEED,
       variables: {
@@ -489,14 +482,7 @@ async function deleteHistoryPrompt(
 ): Promise<void> {
   const response = await fetch(META_GRAPHQL_URL, {
     method: "POST",
-    headers: {
-      "Accept": "multipart/mixed, application/json",
-      "Content-Type": "application/json",
-      "Cookie": auth.cookieHeader,
-      "Origin": "https://meta.ai",
-      "Referer": META_CREATE_URL,
-      "User-Agent": auth.userAgent,
-    },
+    headers: buildHistoryGraphqlHeaders(auth),
     body: JSON.stringify({
       doc_id: DOC_DELETE_CONVERSATION,
       variables: {
@@ -539,6 +525,17 @@ async function deleteHistoryPrompt(
       `Meta history delete failed for prompt ${promptId}: ${deleteConversation.message}`,
     );
   }
+}
+
+function buildHistoryGraphqlHeaders(auth: HistoryFetchAuth): HeadersInit {
+  return {
+    "Accept": "multipart/mixed, application/json",
+    "Content-Type": "application/json",
+    "Cookie": auth.cookieHeader,
+    "Origin": "https://meta.ai",
+    "Referer": META_CREATE_URL,
+    "User-Agent": auth.userAgent,
+  };
 }
 
 function getMediaLibraryFeedPayload(

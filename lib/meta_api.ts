@@ -363,23 +363,7 @@ export class MetaAiClient {
 
       for (const statusRecord of collectStatusRecords(payload)) {
         const previous = latestById.get(statusRecord.mediaId);
-        if (!previous) {
-          latestById.set(statusRecord.mediaId, statusRecord);
-          continue;
-        }
-
-        const previousHasUrl = asOptionalString(previous.generatedVideo?.url);
-        const currentHasUrl = asOptionalString(
-          statusRecord.generatedVideo?.url,
-        );
-        if (!previousHasUrl && currentHasUrl) {
-          latestById.set(statusRecord.mediaId, statusRecord);
-          continue;
-        }
-
-        if (
-          previous.status !== "COMPLETE" && statusRecord.status === "COMPLETE"
-        ) {
+        if (shouldReplaceStatusRecord(previous, statusRecord)) {
           latestById.set(statusRecord.mediaId, statusRecord);
         }
       }
@@ -442,6 +426,23 @@ export class MetaAiClient {
       "User-Agent": this.userAgent,
     };
   }
+}
+
+function shouldReplaceStatusRecord(
+  previous: StatusRecord | undefined,
+  current: StatusRecord,
+): boolean {
+  if (!previous) {
+    return true;
+  }
+
+  const previousHasUrl = asOptionalString(previous.generatedVideo?.url);
+  const currentHasUrl = asOptionalString(current.generatedVideo?.url);
+  if (!previousHasUrl && currentHasUrl) {
+    return true;
+  }
+
+  return previous.status !== "COMPLETE" && current.status === "COMPLETE";
 }
 
 function coerceGeneratedVideo(
