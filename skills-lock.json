@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "clifier/SKILL.md",
       "computedHash": "d793a9d41d31bbb3bbaa7561f86aac8dbfd7b8a6c7a638696279eb6203b2a671"
+    },
+    "simplify": {
+      "source": "brianlovin/claude-config",
+      "sourceType": "github",
+      "skillPath": "skills/simplify/SKILL.md",
+      "computedHash": "322a20071306ede626dc73ac05182b08c97b60781e23ec3fbf23f85a4d27d111"
     }
   }
 }

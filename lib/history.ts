@@ -195,9 +195,11 @@ async function collectAllHistoryPromptIds(
 ): Promise<string[]> {
   const items = await fetchAllMediaLibraryItems(auth);
   await resolveFeedPromptIds(items, auth);
-  return [...new Set(
-    items.flatMap((item) => item.promptId ? [item.promptId] : []),
-  )].sort();
+  return [
+    ...new Set(
+      items.flatMap((item) => item.promptId ? [item.promptId] : []),
+    ),
+  ].sort();
 }
 
 async function loadHistoryFetchAuth(
@@ -319,16 +321,12 @@ async function fetchMediaLibraryPage(
 function coerceFeedHistoryItem(value: unknown): FeedHistoryItem {
   const edge = asRecord(value);
   const node = asRecord(edge?.node);
-  const images = coerceFeedMediaItems(node?.images, "image");
-  const videos = coerceFeedMediaItems(node?.videos, "video");
+  const images = coerceFeedMediaItems(node?.images);
+  const videos = coerceFeedMediaItems(node?.videos);
   const media = [...images, ...videos];
 
-  let promptId = media.find((item) => item.promptId)?.promptId ?? null;
+  const promptId = media.find((item) => item.promptId)?.promptId ?? null;
   const conversationId = asOptionalString(node?.conversationId);
-
-  if (!promptId && conversationId) {
-    promptId = null;
-  }
 
   return {
     conversationId,
@@ -337,10 +335,7 @@ function coerceFeedHistoryItem(value: unknown): FeedHistoryItem {
   };
 }
 
-function coerceFeedMediaItems(
-  value: unknown,
-  kind: "image" | "video",
-): FeedMediaItem[] {
+function coerceFeedMediaItems(value: unknown): FeedMediaItem[] {
   if (!Array.isArray(value)) {
     return [];
   }

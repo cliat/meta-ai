@@ -1,4 +1,5 @@
 import { Command } from "@cliffy/command";
+import { fromFileUrl } from "@std/path";
 import denoConfig from "./deno.json" with { type: "json" };
 import { downloadFile } from "./lib/download.ts";
 import {
@@ -19,7 +20,10 @@ import {
   checkPlaywrightCliDependencies,
   closePlaywrightCliSession,
   generatePlaywrightCliSessionName,
+  gotoPlaywrightCliSession,
+  loadPlaywrightCliState,
   openPlaywrightCliSession,
+  runPlaywrightCliCodeJson,
   savePlaywrightCliState,
 } from "./lib/playwright_cli.ts";
 import {
@@ -68,6 +72,36 @@ type HistoryClearOptions = AuthenticatedOptions & {
   force?: boolean;
 };
 
+type ImageDownloadResult = {
+  index: number;
+  id: string;
+  url: string;
+  thumbnail: string | null;
+  downloadableFileName: string | null;
+  path: string;
+  bytes: number;
+  contentType: string | null;
+};
+
+type AnimationResult = {
+  imageIndex: number;
+  prompt: string;
+  finalVideo: {
+    id: string;
+    url: string;
+    path: string;
+    bytes: number;
+    contentType: string | null;
+    downloadableFileName: string | null;
+  };
+  lineage: Array<{
+    step: string;
+    id: string;
+    url: string;
+    status: string;
+  }>;
+};
+
 const VERSION = denoConfig.version;
 const MUTATION_PAUSE_MS = 5_000;
 const MUTATION_PAUSE_JITTER_MS = 2_000;
@@ -77,14 +111,8 @@ const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 export async function loginCommand(options: LoginOptions): Promise<void> {
   const sessionPath = resolvePath(options.sessionPath);
   const url = options.url ?? "https://meta.ai/create";
-  const dependencyChecks = await checkLoginDependencies();
-  if (
-    !dependencyChecks.playwrightCliAvailable ||
-    !dependencyChecks.playwrightCliBrowserReady
-  ) {
-    throw new Error(dependencyChecks.message);
-  }
-  const state = await runLoginBootstrap(url);
+  await ensurePlaywrightCliReady();
+  const state = await runLoginBootstrapWithPlaywrightCli(url);
 
   if (!hasMetaSessionCookie(state)) {
     throw new Error(
@@ -137,117 +165,22 @@ export async function imageCreateCommand(
   const { client, sessionPath } = await createClient(options.sessionPath);
   const createResult = await client.createImage(prompt, aspect, count);
   const images = ensureUrls(createResult.images, "image");
-  const imagePaths = await planNumberedOutputs(
-    outputImage,
-    images.length,
-    ".jpg",
-  );
-  const imageDownloads = await mapSequentially(images, async (image, index) => {
-    const download = await downloadFile(
-      image.url,
-      imagePaths[index],
-      client.getMediaDownloadHeaders(),
-    );
-    return {
-      index: index + 1,
-      id: image.id,
-      url: image.url,
-      thumbnail: image.thumbnail ?? null,
-      downloadableFileName: image.downloadableFileName ?? null,
-      path: download.path,
-      bytes: download.bytes,
-      contentType: download.contentType,
-    };
-  });
-
-  let animationResults: Array<{
-    imageIndex: number;
-    prompt: string;
-    finalVideo: {
-      id: string;
-      url: string;
-      path: string;
-      bytes: number;
-      contentType: string | null;
-      downloadableFileName: string | null;
-    };
-    lineage: Array<{
-      step: string;
-      id: string;
-      url: string;
-      status: string;
-    }>;
-  }> = [];
+  const imageDownloads = await downloadImages(client, images, outputImage);
+  let animationResults: AnimationResult[] = [];
 
   if (animate) {
-    const videoPaths = await planNumberedOutputs(
-      outputVideo!,
-      images.length,
-      ".mp4",
-    );
-
-    await pauseBetweenMutationJobs();
-
-    animationResults = await mapSequentially(images, async (image, index) => {
-      if (index > 0) {
-        await pauseBetweenMutationJobs();
-      }
-
-      const animatedDraft = await client.animateImage(
-        createResult.conversationId,
-        createResult.branchPath,
-        image,
+    animationResults = await createImageAnimations(
+      client,
+      sessionPath,
+      images,
+      {
         animationPrompt,
-      );
-      let currentBranchPath = animatedDraft.branchPath;
-      let currentVideo = await pickFirstCompletedVideo(
-        client,
-        animatedDraft.videos,
-        createResult.conversationId,
-      );
-      const videoLineage: CompletedVideo[] = [currentVideo];
-
-      for (let i = 0; i < extendCount; i += 1) {
-        await pauseBetweenMutationJobs();
-        const extendedDraft = await client.extendVideo(
-          createResult.conversationId,
-          currentBranchPath,
-          currentVideo,
-        );
-        currentBranchPath = extendedDraft.branchPath;
-        currentVideo = await pickFirstCompletedVideo(
-          client,
-          extendedDraft.videos,
-          createResult.conversationId,
-        );
-        videoLineage.push(currentVideo);
-      }
-
-      const finalDownload = await downloadFile(
-        currentVideo.url,
-        videoPaths[index],
-        client.getMediaDownloadHeaders(),
-      );
-
-      return {
-        imageIndex: index + 1,
-        prompt: animationPrompt,
-        finalVideo: {
-          id: currentVideo.id,
-          url: currentVideo.url,
-          path: finalDownload.path,
-          bytes: finalDownload.bytes,
-          contentType: finalDownload.contentType,
-          downloadableFileName: currentVideo.downloadableFileName ?? null,
-        },
-        lineage: videoLineage.map((video, lineageIndex) => ({
-          step: lineageIndex === 0 ? "animate" : `extend-${lineageIndex}`,
-          id: video.id,
-          url: video.url,
-          status: video.status,
-        })),
-      };
-    });
+        conversationId: createResult.conversationId,
+        branchPath: createResult.branchPath,
+        extendCount,
+        outputVideo: outputVideo!,
+      },
+    );
   }
 
   const result = {
@@ -391,7 +324,9 @@ export async function historyDownloadCommand(
     files,
     deletedPromptIds: deleted?.removedPromptIds ?? [],
     message: options.delete
-      ? `Saved ${imageCount} image(s) and ${videoCount} video(s), then removed ${deleted?.removedPromptIds.length ?? 0} prompt(s) from Meta history.`
+      ? `Saved ${imageCount} image(s) and ${videoCount} video(s), then removed ${
+        deleted?.removedPromptIds.length ?? 0
+      } prompt(s) from Meta history.`
       : `Saved ${imageCount} image(s) and ${videoCount} video(s).`,
   };
 
@@ -412,7 +347,8 @@ export async function historyClearCommand(
     command: "history clear",
     sessionPath,
     removedPromptIds: deleted.removedPromptIds,
-    message: `Removed ${deleted.removedPromptIds.length} prompt(s) from Meta history.`,
+    message:
+      `Removed ${deleted.removedPromptIds.length} prompt(s) from Meta history.`,
   };
 
   console.log(formatOutput(result, options.json ?? false));
@@ -432,7 +368,7 @@ function buildCli() {
     )
     .example(
       "Reuse the saved session on later commands",
-      "meta-ai --json image create --session-path ./.auth/meta-session.json --prompt \"a fox in snowfall\" --image-out out/fox",
+      'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox',
     )
     .example(
       "Download generated history and remove the prompts that produced the saved files",
@@ -680,6 +616,223 @@ function ensureUrls<T extends GeneratedImage | CompletedVideo>(
   });
 }
 
+async function downloadImages(
+  client: MetaAiClient,
+  images: Array<GeneratedImage & { url: string }>,
+  outputImage: string,
+): Promise<ImageDownloadResult[]> {
+  const imagePaths = await planNumberedOutputs(
+    outputImage,
+    images.length,
+    ".jpg",
+  );
+
+  return await mapSequentially(images, async (image, index) => {
+    const download = await downloadFile(
+      image.url,
+      imagePaths[index],
+      client.getMediaDownloadHeaders(),
+    );
+
+    return {
+      index: index + 1,
+      id: image.id,
+      url: image.url,
+      thumbnail: image.thumbnail ?? null,
+      downloadableFileName: image.downloadableFileName ?? null,
+      path: download.path,
+      bytes: download.bytes,
+      contentType: download.contentType,
+    };
+  });
+}
+
+async function createImageAnimations(
+  client: MetaAiClient,
+  sessionPath: string,
+  images: Array<GeneratedImage & { url: string }>,
+  options: {
+    animationPrompt: string;
+    conversationId: string;
+    branchPath: string;
+    extendCount: number;
+    outputVideo: string;
+  },
+): Promise<AnimationResult[]> {
+  await ensurePlaywrightCliReady();
+
+  const videoPaths = await planNumberedOutputs(
+    options.outputVideo,
+    images.length,
+    ".mp4",
+  );
+  const sessionName = generatePlaywrightCliSessionName("meta-ai-animate");
+
+  try {
+    await openPlaywrightCliSession(sessionName, { url: "about:blank" });
+    await loadPlaywrightCliState(sessionName, sessionPath);
+    await pauseBetweenMutationJobs();
+
+    return await mapSequentially(images, async (image, index) => {
+      if (index > 0) {
+        await pauseBetweenMutationJobs();
+      }
+
+      return await createImageAnimation(client, sessionName, image, {
+        ...options,
+        imageIndex: index + 1,
+        videoPath: videoPaths[index],
+      });
+    });
+  } finally {
+    await closePlaywrightCliSession(sessionName).catch(() => undefined);
+  }
+}
+
+async function ensurePlaywrightCliReady(): Promise<void> {
+  const dependencyChecks = await checkPlaywrightCliDependencies();
+  if (
+    dependencyChecks.playwrightCliAvailable &&
+    dependencyChecks.playwrightCliBrowserReady
+  ) {
+    return;
+  }
+
+  throw new Error(dependencyChecks.message);
+}
+
+async function createImageAnimation(
+  client: MetaAiClient,
+  sessionName: string,
+  image: GeneratedImage & { url: string },
+  options: {
+    imageIndex: number;
+    animationPrompt: string;
+    conversationId: string;
+    branchPath: string;
+    extendCount: number;
+    videoPath: string;
+  },
+): Promise<AnimationResult> {
+  const animatedDraft = await animateImageWithLightbox(
+    sessionName,
+    image,
+    options.animationPrompt,
+  );
+  let currentBranchPath = options.branchPath;
+  let currentVideo = await pickFirstCompletedVideo(
+    client,
+    animatedDraft.videos,
+    options.conversationId,
+  );
+  const videoLineage: CompletedVideo[] = [currentVideo];
+
+  for (let i = 0; i < options.extendCount; i += 1) {
+    await pauseBetweenMutationJobs();
+    const extendedDraft = await client.extendVideo(
+      options.conversationId,
+      currentBranchPath,
+      currentVideo,
+    );
+    currentBranchPath = extendedDraft.branchPath;
+    currentVideo = await pickFirstCompletedVideo(
+      client,
+      extendedDraft.videos,
+      options.conversationId,
+    );
+    videoLineage.push(currentVideo);
+  }
+
+  const finalDownload = await downloadFile(
+    currentVideo.url,
+    options.videoPath,
+    client.getMediaDownloadHeaders(),
+  );
+
+  return {
+    imageIndex: options.imageIndex,
+    prompt: options.animationPrompt,
+    finalVideo: {
+      id: currentVideo.id,
+      url: currentVideo.url,
+      path: finalDownload.path,
+      bytes: finalDownload.bytes,
+      contentType: finalDownload.contentType,
+      downloadableFileName: currentVideo.downloadableFileName ?? null,
+    },
+    lineage: videoLineage.map((video, lineageIndex) => ({
+      step: lineageIndex === 0 ? "animate" : `extend-${lineageIndex}`,
+      id: video.id,
+      url: video.url,
+      status: video.status,
+    })),
+  };
+}
+
+type LightboxAnimateResult = {
+  ok: boolean;
+  before?: string;
+  after?: string;
+  videoId?: string;
+  reason?: string;
+};
+
+async function animateImageWithLightbox(
+  sessionName: string,
+  image: GeneratedImage,
+  prompt: string,
+): Promise<{ videos: GeneratedVideo[] }> {
+  const animationPrompt = prompt.trim() || "Animate";
+
+  await gotoPlaywrightCliSession(
+    sessionName,
+    `https://www.meta.ai/create/${image.id}`,
+  );
+
+  const result = await runPlaywrightCliCodeJson<LightboxAnimateResult>(
+    sessionName,
+    buildCustomAnimateCode(animationPrompt, image.id),
+  );
+
+  if (!result.ok || !result.videoId) {
+    const detail = result.reason ? ` ${result.reason}` : "";
+    throw new Error(
+      `Meta custom animate did not return a video media id.${detail}`,
+    );
+  }
+
+  return {
+    videos: [{
+      id: result.videoId,
+      url: null,
+      thumbnail: null,
+      prompt: animationPrompt,
+      sourceMedia: {
+        id: image.id,
+        url: image.url,
+        thumbnail: image.thumbnail ?? null,
+      },
+    }],
+  };
+}
+
+function buildCustomAnimateCode(prompt: string, sourceMediaId: string): string {
+  const scriptPath = fromFileUrl(
+    new URL(
+      "./lib/meta_lightbox_animate.js",
+      import.meta.url,
+    ),
+  );
+  const input = { prompt, sourceMediaId };
+
+  return `async (page) => {
+    await page.addScriptTag({ path: ${JSON.stringify(scriptPath)} });
+    return await page.evaluate(async (input) => {
+      return await window.metaAiCustomAnimate(input);
+    }, ${JSON.stringify(input)});
+  }`;
+}
+
 async function pickFirstCompletedVideo(
   client: MetaAiClient,
   variants: GeneratedVideo[],
@@ -711,10 +864,6 @@ async function pauseBetweenMutationJobs(): Promise<void> {
   );
 }
 
-async function runLoginBootstrap(url: string): Promise<StorageState> {
-  return await runLoginBootstrapWithPlaywrightCli(url);
-}
-
 async function runLoginBootstrapWithPlaywrightCli(
   url: string,
 ): Promise<StorageState> {
@@ -739,15 +888,13 @@ async function runLoginBootstrapWithPlaywrightCli(
     return state;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to launch playwright-cli browser session: ${message}`);
+    throw new Error(
+      `Failed to launch playwright-cli browser session: ${message}`,
+    );
   } finally {
     await closePlaywrightCliSession(sessionName).catch(() => undefined);
     await Deno.remove(tempStatePath).catch(() => undefined);
   }
-}
-
-async function checkLoginDependencies() {
-  return await checkPlaywrightCliDependencies();
 }
 
 async function waitForMetaSessionCookieInPlaywrightCliSession(

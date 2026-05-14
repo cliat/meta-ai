@@ -70,28 +70,10 @@ export async function saveStorageState(
 
 export function buildMetaCookieHeader(state: StorageState): string {
   const nowSeconds = Date.now() / 1000;
-
-  const cookies = state.cookies.filter((cookie) => {
-    if (!cookie.value) {
-      return false;
-    }
-
-    if (!cookie.domain.includes("meta.ai")) {
-      return false;
-    }
-
-    if (
-      typeof cookie.expires === "number" &&
-      cookie.expires > 0 &&
-      cookie.expires <= nowSeconds
-    ) {
-      return false;
-    }
-
-    return true;
-  });
-
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  return state.cookies
+    .filter((cookie) => isUsableMetaCookie(cookie, nowSeconds))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join("; ");
 }
 
 export function hasMetaSessionCookie(state: StorageState): boolean {
@@ -109,4 +91,19 @@ function isStorageState(value: unknown): value is StorageState {
 
   const record = value as Record<string, unknown>;
   return Array.isArray(record.cookies);
+}
+
+function isUsableMetaCookie(
+  cookie: BrowserCookie,
+  nowSeconds: number,
+): boolean {
+  if (!cookie.value || !cookie.domain.includes("meta.ai")) {
+    return false;
+  }
+
+  if (typeof cookie.expires !== "number" || cookie.expires <= 0) {
+    return true;
+  }
+
+  return cookie.expires > nowSeconds;
 }

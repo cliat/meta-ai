@@ -17,12 +17,6 @@ const GRAPHQL_RATE_LIMIT_WINDOW_MS = 60_000;
 const GRAPHQL_RETRY_ATTEMPTS = 3;
 const GRAPHQL_RETRY_BASE_DELAY_MS = 2_000;
 
-type MetaOperation =
-  | "TEXT_TO_IMAGE"
-  | "TEXT_TO_VIDEO"
-  | "IMAGE_TO_VIDEO"
-  | "EXTEND_VIDEO";
-
 export type AspectRatio = "9:16" | "1:1" | "16:9";
 type MetaOrientation = "VERTICAL" | "SQUARE" | "LANDSCAPE";
 
@@ -183,35 +177,6 @@ export class MetaAiClient {
         requestId: null,
       },
       isNewConversation: true,
-    });
-  }
-
-  async animateImage(
-    conversationId: string,
-    branchPath: string,
-    image: GeneratedImage,
-    prompt: string,
-  ): Promise<OperationDraftResult> {
-    if (!image.url) {
-      throw new Error("The selected image does not have a downloadable URL.");
-    }
-
-    return await this.sendMessageOperation({
-      conversationId,
-      currentBranchPath: branchPath,
-      content: prompt,
-      entryPoint: "KADABRA__IMAGINE_UNIFIED_CANVAS",
-      imagineOperationRequest: {
-        operation: "IMAGE_TO_VIDEO",
-        imageToVideoParams: {
-          sourceMediaEntId: image.id,
-          sourceMediaUrl: image.url,
-          prompt,
-          numMedia: 1,
-        },
-        requestId: null,
-      },
-      isNewConversation: false,
     });
   }
 

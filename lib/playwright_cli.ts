@@ -22,6 +22,12 @@ type PlaywrightCliOpenOptions = {
   persistent?: boolean;
 };
 
+type PlaywrightCliInvocation = {
+  command: string;
+  argsPrefix: string[];
+  display: string;
+};
+
 export function generatePlaywrightCliSessionName(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
@@ -116,6 +122,13 @@ export async function loadPlaywrightCliState(
   ]);
 }
 
+export async function gotoPlaywrightCliSession(
+  sessionName: string,
+  url: string,
+): Promise<void> {
+  await runPlaywrightCli([withSessionArg(sessionName), "goto", url]);
+}
+
 export async function savePlaywrightCliState(
   sessionName: string,
   sessionPath: string,
@@ -144,15 +157,48 @@ function withSessionArg(sessionName: string): string {
 }
 
 function resolvePlaywrightCliExecutable(): string {
-  return Deno.build.os === "windows" ? "playwright-cli.cmd" : "playwright-cli";
+  return resolvePlaywrightCliInvocation().display;
+}
+
+function resolvePlaywrightCliInvocation(): PlaywrightCliInvocation {
+  if (Deno.build.os !== "windows") {
+    return {
+      command: "playwright-cli",
+      argsPrefix: [],
+      display: "playwright-cli",
+    };
+  }
+
+  for (const pathEntry of getPathEntries()) {
+    const scriptPath =
+      `${pathEntry}\\node_modules\\@playwright\\cli\\playwright-cli.js`;
+    if (!isFile(scriptPath)) {
+      continue;
+    }
+
+    const localNode = `${pathEntry}\\node.exe`;
+    const nodeCommand = isFile(localNode) ? localNode : "node";
+    return {
+      command: nodeCommand,
+      argsPrefix: [scriptPath],
+      display: `${nodeCommand} ${scriptPath}`,
+    };
+  }
+
+  return {
+    command: "node",
+    argsPrefix: ["playwright-cli"],
+    display: "node playwright-cli",
+  };
 }
 
 async function runPlaywrightCli(
   args: string[],
   options: RunPlaywrightCliOptions = {},
 ): Promise<{ stdout: string; stderr: string }> {
-  const command = new Deno.Command(resolvePlaywrightCliExecutable(), {
-    args,
+  const invocation = resolvePlaywrightCliInvocation();
+  const command = new Deno.Command(invocation.command, {
+    args: [...invocation.argsPrefix, ...args],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
@@ -164,7 +210,7 @@ async function runPlaywrightCli(
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) {
       throw new Error(
-        `Could not execute ${resolvePlaywrightCliExecutable()}. Is playwright-cli installed and on PATH?`,
+        `Could not execute ${invocation.display}. Is playwright-cli installed and on PATH?`,
       );
     }
     throw error;
@@ -175,11 +221,26 @@ async function runPlaywrightCli(
   if (!output.success && !options.allowFailure) {
     const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join(" ");
     throw new Error(
-      `playwright-cli ${args.join(" ")} failed with code ${output.code}.${detail ? ` ${detail}` : ""}`,
+      `${invocation.display} ${
+        args.join(" ")
+      } failed with code ${output.code}.${detail ? ` ${detail}` : ""}`,
     );
   }
 
   return { stdout, stderr };
+}
+
+function getPathEntries(): string[] {
+  const pathValue = Deno.env.get("PATH") ?? Deno.env.get("Path") ?? "";
+  return pathValue.split(";").filter((entry) => entry.length > 0);
+}
+
+function isFile(path: string): boolean {
+  try {
+    return Deno.statSync(path).isFile;
+  } catch {
+    return false;
+  }
 }
 
 function parsePlaywrightCliJsonResult<T>(stdout: string): T {
@@ -199,7 +260,9 @@ function parsePlaywrightCliJsonResult<T>(stdout: string): T {
     return JSON.parse(raw) as T;
   } catch (error) {
     throw new Error(
-      `playwright-cli returned a non-JSON result block: ${raw}. ${String(error)}`,
+      `playwright-cli returned a non-JSON result block: ${raw}. ${
+        String(error)
+      }`,
     );
   }
 }
