@@ -791,7 +791,7 @@ async function animateImageWithLightbox(
 
   const result = await runPlaywrightCliCodeJson<LightboxAnimateResult>(
     sessionName,
-    buildCustomAnimateCode(animationPrompt, image.id),
+    await buildCustomAnimateCode(animationPrompt, image.id),
   );
 
   if (!result.ok || !result.videoId) {
@@ -816,13 +816,11 @@ async function animateImageWithLightbox(
   };
 }
 
-function buildCustomAnimateCode(prompt: string, sourceMediaId: string): string {
-  const scriptPath = fromFileUrl(
-    new URL(
-      "./lib/meta_lightbox_animate.js",
-      import.meta.url,
-    ),
-  );
+async function buildCustomAnimateCode(
+  prompt: string,
+  sourceMediaId: string,
+): Promise<string> {
+  const scriptPath = await getCustomAnimateScriptPath();
   const input = { prompt, sourceMediaId };
 
   return `async (page) => {
@@ -831,6 +829,27 @@ function buildCustomAnimateCode(prompt: string, sourceMediaId: string): string {
       return await window.metaAiCustomAnimate(input);
     }, ${JSON.stringify(input)});
   }`;
+}
+
+async function getCustomAnimateScriptPath(): Promise<string> {
+  const scriptUrl = new URL("./lib/meta_lightbox_animate.js", import.meta.url);
+  if (scriptUrl.protocol === "file:") {
+    return fromFileUrl(scriptUrl);
+  }
+
+  const response = await fetch(scriptUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Could not load Meta lightbox automation script: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const scriptPath = await Deno.makeTempFile({
+    prefix: "meta-ai-lightbox-animate-",
+    suffix: ".js",
+  });
+  await Deno.writeTextFile(scriptPath, await response.text());
+  return scriptPath;
 }
 
 async function pickFirstCompletedVideo(
