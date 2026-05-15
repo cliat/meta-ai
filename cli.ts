@@ -164,7 +164,11 @@ export async function imageCreateCommand(
 
   const { client, sessionPath } = await createClient(options.sessionPath);
   const createResult = await client.createImage(prompt, aspect, count);
-  const images = ensureUrls(createResult.images, "image");
+  const images = ensureUrls(
+    createResult.images,
+    "image",
+    createResult.content,
+  );
   const imageDownloads = await downloadImages(client, images, outputImage);
   let animationResults: AnimationResult[] = [];
 
@@ -600,7 +604,13 @@ function parseAspectRatio(
 function ensureUrls<T extends GeneratedImage | CompletedVideo>(
   variants: T[],
   label: string,
+  content?: string,
 ): Array<T & { url: string }> {
+  if (variants.length === 0) {
+    const detail = content ? ` Meta said: ${content}` : "";
+    throw new Error(`Meta did not return any ${label} variants.${detail}`);
+  }
+
   return variants.map((variant, index) => {
     if (!variant.url) {
       throw new Error(
