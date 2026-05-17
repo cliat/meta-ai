@@ -15,7 +15,11 @@ import {
   MetaAiClient,
 } from "./lib/meta_api.ts";
 import { formatOutput } from "./lib/output.ts";
-import { planNumberedOutputs, resolvePath } from "./lib/paths.ts";
+import {
+  DEFAULT_SESSION_PATH,
+  planNumberedOutputs,
+  resolvePath,
+} from "./lib/paths.ts";
 import {
   checkPlaywrightCliDependencies,
   closePlaywrightCliSession,
@@ -33,20 +37,16 @@ import {
   type StorageState,
 } from "./lib/session.ts";
 
-type SharedOptions = {
+type RootOptions = {
   json?: boolean;
+  sessionPath?: string;
 };
 
-type AuthenticatedOptions = SharedOptions & {
-  sessionPath: string;
-};
-
-type LoginOptions = SharedOptions & {
-  sessionPath: string;
+type LoginOptions = RootOptions & {
   url?: string;
 };
 
-type ImageCreateOptions = AuthenticatedOptions & {
+type ImageCreateOptions = RootOptions & {
   prompt: string;
   imageOut: string;
   videoOut?: string;
@@ -56,19 +56,19 @@ type ImageCreateOptions = AuthenticatedOptions & {
   extend?: number;
 };
 
-type VideoCreateOptions = AuthenticatedOptions & {
+type VideoCreateOptions = RootOptions & {
   prompt: string;
   videoOut: string;
   aspect?: string;
   extend?: number;
 };
 
-type HistoryDownloadOptions = AuthenticatedOptions & {
+type HistoryDownloadOptions = RootOptions & {
   out: string;
   delete?: boolean;
 };
 
-type HistoryClearOptions = AuthenticatedOptions & {
+type HistoryClearOptions = RootOptions & {
   force?: boolean;
 };
 
@@ -109,7 +109,7 @@ const LOGIN_POLL_INTERVAL_MS = 1_000;
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 export async function loginCommand(options: LoginOptions): Promise<void> {
-  const sessionPath = resolvePath(options.sessionPath);
+  const sessionPath = resolveSessionPath(options.sessionPath);
   const url = options.url ?? "https://meta.ai/create";
   await ensurePlaywrightCliReady();
   const state = await runLoginBootstrapWithPlaywrightCli(url);
@@ -121,15 +121,18 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   }
 
   const savedPath = await saveStorageState(state, sessionPath);
+  const cookieCount = state.cookies.filter((cookie) =>
+    cookie.domain.includes("meta.ai") && cookie.value.length > 0
+  ).length;
   const result = {
     ok: true,
-    command: "login",
+    command: "auth login",
     sessionPath: savedPath,
-    cookieCount: state.cookies.length,
+    cookieCount,
     message: `Saved Meta session to ${savedPath}`,
   };
 
-  console.log(formatOutput(result, options.json ?? false));
+  emitResult(result, options.json);
 }
 
 export async function imageCreateCommand(
@@ -208,7 +211,7 @@ export async function imageCreateCommand(
       : `Saved ${imageDownloads.length} image(s).`,
   };
 
-  console.log(formatOutput(result, options.json ?? false));
+  emitResult(result, options.json);
 }
 
 export async function videoCreateCommand(
@@ -292,7 +295,7 @@ export async function videoCreateCommand(
     message: `Saved ${videos.length} video(s).`,
   };
 
-  console.log(formatOutput(result, options.json ?? false));
+  emitResult(result, options.json);
 }
 
 export async function historyDownloadCommand(
@@ -333,7 +336,7 @@ export async function historyDownloadCommand(
       : `Saved ${imageCount} image(s) and ${videoCount} video(s).`,
   };
 
-  console.log(formatOutput(result, options.json ?? false));
+  emitResult(result, options.json);
 }
 
 export async function historyClearCommand(
@@ -354,47 +357,58 @@ export async function historyClearCommand(
       `Removed ${deleted.removedPromptIds.length} prompt(s) from Meta history.`,
   };
 
-  console.log(formatOutput(result, options.json ?? false));
+  emitResult(result, options.json);
 }
 
 function buildCli() {
-  return new Command()
-    .name("meta-ai")
-    .version(VERSION)
+  const cli = new Command();
+  const auth = new Command().description("Authentication workflows.");
+  auth.action(() => auth.showHelp());
+  auth.command("login")
     .description(
-      "Meta AI media automation CLI. Run login --session-path <path> first, then reuse the same --session-path on every authenticated command.",
-    )
-    .globalOption("--json", "Emit JSON output.")
-    .example(
-      "Bootstrap a session",
-      "meta-ai --json login --session-path ./.auth/meta-session.json",
-    )
-    .example(
-      "Reuse the saved session on later commands",
-      'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox',
-    )
-    .example(
-      "Download generated history and remove the prompts that produced the saved files",
-      "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
-    )
-    .command("login")
-    .description(
-      "Open a browser and save Meta session state to an explicit path.",
-    )
-    .option(
-      "-s, --session-path <path:string>",
-      "Where to write the Playwright storage-state JSON.",
-      { required: true },
+      "Open a browser and save reusable Meta auth material to the session path.",
     )
     .option("-u, --url <url:string>", "Start URL.", {
       default: "https://meta.ai/create",
     })
     .example(
-      "Save a reusable session",
-      "meta-ai login --session-path ./.auth/meta-session.json",
+      "Save a reusable session at the default path",
+      "meta-ai auth login",
     )
-    .action(loginCommand)
-    .reset()
+    .example(
+      "Save a reusable session at a custom path",
+      "meta-ai --session-path ./.auth/meta-session.json auth login",
+    )
+    .action(loginCommand);
+
+  return cli
+    .noExit()
+    .name("meta-ai")
+    .version(VERSION)
+    .versionOption("-v, --version")
+    .description(
+      `Meta AI media automation CLI. Run auth login first, then reuse the same session file on later authenticated commands. Default session path: ${DEFAULT_SESSION_PATH}.`,
+    )
+    .globalOption("--json", "Emit schema-stable JSON output.")
+    .globalOption(
+      "-s, --session-path <path:string>",
+      `Session/auth path. Defaults to ${DEFAULT_SESSION_PATH}.`,
+      { default: DEFAULT_SESSION_PATH },
+    )
+    .action(() => cli.showHelp())
+    .example(
+      "Bootstrap a session",
+      "meta-ai --json auth login",
+    )
+    .example(
+      "Reuse the saved session on later commands",
+      'meta-ai --json --session-path ~/.auth/cliat@meta-ai.json image create --prompt "a fox in snowfall" --image-out out/fox',
+    )
+    .example(
+      "Download generated history and remove the prompts that produced the saved files",
+      "meta-ai --json --session-path ~/.auth/cliat@meta-ai.json history download --out out/history --delete",
+    )
+    .command("auth", auth)
     .command(
       "image",
       new Command()
@@ -427,18 +441,13 @@ function buildCli() {
             default: 0,
           },
         )
-        .option(
-          "-s, --session-path <path:string>",
-          "Playwright storage-state path created by login.",
-          { required: true },
-        )
         .example(
           "Create one image",
-          'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1',
+          'meta-ai --json --session-path ~/.auth/cliat@meta-ai.json image create --prompt "a fox in snowfall" --image-out out/fox --aspect 1:1',
         )
         .example(
           "Create and animate a batch",
-          'meta-ai --json image create --session-path ./.auth/meta-session.json --prompt "a neon koi fish in a dark pond" --image-out out/koi --count 2 --animate "slow water ripple and gentle camera drift" --video-out out/koi --extend 2',
+          'meta-ai --json --session-path ~/.auth/cliat@meta-ai.json image create --prompt "a neon koi fish in a dark pond" --image-out out/koi --count 2 --animate "slow water ripple and gentle camera drift" --video-out out/koi --extend 2',
         )
         .action(imageCreateCommand),
     )
@@ -466,14 +475,9 @@ function buildCli() {
             default: 0,
           },
         )
-        .option(
-          "-s, --session-path <path:string>",
-          "Playwright storage-state path created by login.",
-          { required: true },
-        )
         .example(
           "Create videos",
-          'meta-ai --json video create --session-path ./.auth/meta-session.json --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9',
+          'meta-ai --json --session-path ~/.auth/cliat@meta-ai.json video create --prompt "a paper airplane gliding through clouds" --video-out out/plane --aspect 16:9',
         )
         .action(videoCreateCommand),
     )
@@ -496,18 +500,13 @@ function buildCli() {
               "--delete",
               "After downloading, remove the related prompts from Meta history.",
             )
-            .option(
-              "-s, --session-path <path:string>",
-              "Playwright storage-state path created by login.",
-              { required: true },
-            )
             .example(
               "Download all generated media",
-              "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history",
+              "meta-ai --json --session-path ~/.auth/cliat@meta-ai.json history download --out out/history",
             )
             .example(
               "Download and then remove from Meta history",
-              "meta-ai --json history download --session-path ./.auth/meta-session.json --out out/history --delete",
+              "meta-ai --json --session-path ~/.auth/cliat@meta-ai.json history download --out out/history --delete",
             )
             .action(historyDownloadCommand),
         )
@@ -519,14 +518,9 @@ function buildCli() {
               "--force",
               "Required for this destructive command.",
             )
-            .option(
-              "-s, --session-path <path:string>",
-              "Playwright storage-state path created by login.",
-              { required: true },
-            )
             .example(
               "Clear generated history",
-              "meta-ai --json history clear --session-path ./.auth/meta-session.json --force",
+              "meta-ai --json --session-path ~/.auth/cliat@meta-ai.json history clear --force",
             )
             .action(historyClearCommand),
         ),
@@ -537,16 +531,13 @@ export async function runCli(args = Deno.args): Promise<void> {
   const json = args.includes("--json");
 
   try {
-    if (isRootVersionRequest(args)) {
-      console.log(VERSION);
-      return;
-    }
-
     await buildCli().parse(args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(formatOutput({ ok: false, message }, json));
-    Deno.exit(1);
+    if (Deno.exitCode === 0) {
+      Deno.exitCode = 1;
+    }
   }
 }
 
@@ -554,22 +545,24 @@ if (import.meta.main) {
   await runCli();
 }
 
-function isRootVersionRequest(args: string[]): boolean {
-  const commandArgs = args.filter((arg) => arg !== "--json");
-  return commandArgs.length === 1 &&
-    (commandArgs[0] === "--version" || commandArgs[0] === "-V");
+function emitResult(value: unknown, json?: boolean): void {
+  console.log(formatOutput(value, json ?? false));
 }
 
-async function createClient(sessionPath: string): Promise<{
+async function createClient(sessionPath: string | undefined): Promise<{
   client: MetaAiClient;
   sessionPath: string;
 }> {
-  const resolvedSessionPath = resolvePath(sessionPath);
+  const resolvedSessionPath = resolveSessionPath(sessionPath);
   const { state } = await loadStorageState(resolvedSessionPath);
   return {
     client: new MetaAiClient(state),
     sessionPath: resolvedSessionPath,
   };
+}
+
+function resolveSessionPath(sessionPath?: string): string {
+  return resolvePath(sessionPath ?? DEFAULT_SESSION_PATH);
 }
 
 function normalizeAnimatePrompt(
@@ -912,8 +905,8 @@ async function mapSequentially<T, R>(
   worker: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = [];
-  for (let index = 0; index < items.length; index += 1) {
-    results.push(await worker(items[index], index));
+  for (const [index, item] of items.entries()) {
+    results.push(await worker(item, index));
   }
   return results;
 }

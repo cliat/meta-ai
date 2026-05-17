@@ -59,7 +59,6 @@ export async function collectHistoryInventory(
   sessionPath: string,
 ): Promise<{
   entries: HistoryInventoryEntry[];
-  promptIds: string[];
   createIds: string[];
 }> {
   const auth = await loadHistoryFetchAuth(sessionPath);
@@ -110,7 +109,6 @@ export async function collectHistoryInventory(
 
   return {
     entries,
-    promptIds: entries.map((entry) => entry.promptId),
     createIds: [...new Set(entries.flatMap((entry) => entry.createIds))].sort(),
   };
 }

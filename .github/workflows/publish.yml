@@ -1,16 +1,71 @@
-name: Publish
+name: Release
 on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/publish.yml"
+      - "cli.ts"
+      - "COMMANDS.md"
+      - "README.md"
+      - "deno.json"
+      - "deno.lock"
+      - "lib/**"
+      - "mod.ts"
+      - "scripts/**"
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v6
-      - name: Publish package
-        run: npx jsr publish
+        with:
+          fetch-depth: 0
+      - uses: denoland/setup-deno@v2
+      - name: Detect version change
+        id: version
+        run: deno task version:github-output -- "${{ github.event.before }}"
+      - name: Stop when version is unchanged
+        if: steps.version.outputs.changed != 'true'
+        run: echo "Version unchanged; skipping release."
+      - name: Validate package
+        if: steps.version.outputs.changed == 'true'
+        run: deno task check
+      - name: Validate JSR publish
+        if: steps.version.outputs.changed == 'true'
+        run: deno task publish:dry-run
+      - name: Compile release binaries
+        if: steps.version.outputs.changed == 'true'
+        run: deno task compile
+      - name: Ensure release does not already exist
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+
+          if git rev-parse --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists." >&2
+            exit 1
+          fi
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists." >&2
+            exit 1
+          fi
+      - name: Create GitHub release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            bin/*
+      - name: Publish to JSR
+        if: steps.version.outputs.changed == 'true'
+        run: deno publish

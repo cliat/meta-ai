@@ -7,7 +7,8 @@ video generation, history download, and history cleanup.
 
 - CLI command: `meta-ai`
 - JSR package: `@cliat/meta-ai`
-- Auth model: explicit browser login captured to a storage-state file
+- Auth model: explicit browser login captured to a reusable session file
+- Default session path: `~/.auth/cliat@meta-ai.json`
 
 See [COMMANDS.md](./COMMANDS.md) for the short cheat sheet. This README is the
 full CLI guide.
@@ -38,15 +39,15 @@ deno run -A ./cli.ts --help
 or build a binary:
 
 ```bash
-deno task build
-./bin/meta-ai --help
+deno task compile
+./bin/meta-ai-x86_64-unknown-linux-gnu --help
 ```
 
-On Windows, run `.\bin\meta-ai.exe --help`.
+On Windows, run `.\bin\meta-ai-x86_64-pc-windows-msvc.exe --help`.
 
-### Dependencies for `login`
+### Dependencies for `auth login`
 
-`login` opens a headed browser through `playwright-cli`. Install it once and
+`auth login` opens a headed browser through `playwright-cli`. Install it once and
 install a browser before your first login:
 
 ```bash
@@ -54,57 +55,65 @@ npm install -g @playwright/cli@latest
 playwright-cli install-browser --browser=chrome
 ```
 
-`login` is the only command that launches Playwright directly, but every later
-authenticated command still depends on a valid session file produced by
-`login`.
+`auth login` is the only command that launches Playwright directly, but every
+later authenticated command still depends on a valid session file produced by
+`auth login`.
 
 ## UI to CLI mapping
 
 - Prompt box -> `image create --prompt ...` or `video create --prompt ...`
-- Aspect selector -> `--aspect 9:16|1:1|16:9`
+- Aspect selector -> `--aspect 9:16|1:1|16:9` appended to the generation prompt
 - Image count selector -> `image create --count <n>`
 - Animate button or prompt -> `image create --animate [text] --video-out <path>`
 - Extend action -> `--extend <n>`
 
-## Login and session bootstrap
+## Auth and session bootstrap
 
-This CLI uses explicit browser-auth session reuse. There is no implicit default
-session path, so choose a path you will reuse later:
+This CLI uses explicit browser-auth session reuse. The documented default
+session path is:
 
 ```bash
-meta-ai login --session-path ./.auth/meta-session.json
+~/.auth/cliat@meta-ai.json
+```
+
+Run login with the default path:
+
+```bash
+meta-ai auth login
 ```
 
 Important behavior:
 
-- `--session-path <path>` is required
+- `--session-path <path>` is a global override and defaults to
+  `~/.auth/cliat@meta-ai.json`
 - `--url <url>` is optional and defaults to `https://meta.ai/create`
-- `login` opens a real browser and waits until a Meta session cookie is present
-- the saved file is Playwright storage-state JSON
-- reuse the same `--session-path` on every later authenticated command
-- keep session files under `./.auth/` or another local path and never commit
-  them
+- `auth login` opens a real browser and waits until a Meta session cookie is
+  present
+- the saved file contains only the Meta auth material the runtime reuses later
+- later authenticated commands use the same default path automatically unless
+  `--session-path` overrides it
+- `~` is resolved against `HOME` on Unix-like systems and `USERPROFILE` on
+  Windows
+- keep session files user-local and never commit them
 
 ## CLI feature guide
 
-Every command supports the global `--json` flag.
+Every command supports the global `--json` flag. Authenticated commands also
+inherit the global `--session-path` flag.
 
-### `login`
+### `auth login`
 
 Open a browser and write a reusable Meta session to disk.
 
-Required flags:
-
-- `--session-path <path>`
-
 Optional flags:
 
+- `--session-path <path>`
 - `--url <url>`
 
 Example:
 
 ```bash
-meta-ai --json login --session-path ./.auth/meta-session.json
+meta-ai --json auth login
 ```
 
 ### `image create`
@@ -115,10 +124,10 @@ Required flags:
 
 - `--prompt <text>`
 - `--image-out <path>`
-- `--session-path <path>`
 
 Optional flags:
 
+- `--session-path <path>`
 - `--video-out <path>`
 - `--animate [text]`
 - `--aspect <ratio>` defaults to `9:16`
@@ -129,6 +138,7 @@ Important behavior:
 
 - `--video-out` requires `--animate`
 - `--extend` requires `--animate`
+- `--aspect` appends `aspect <ratio>` to the generation prompt
 - if `--animate` is present without text, the default animation prompt is
   `Animate`
 - image output paths are treated as base names and become numbered `.jpg` files
@@ -139,8 +149,7 @@ Important behavior:
 Create one image:
 
 ```bash
-meta-ai image create \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json image create \
   --prompt "a cinematic close-up of a fox in snowfall" \
   --image-out out/fox \
   --aspect 1:1
@@ -149,8 +158,7 @@ meta-ai image create \
 Create two images, animate both, extend both twice, and download all files:
 
 ```bash
-meta-ai image create \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json image create \
   --prompt "a neon koi fish in a dark pond" \
   --image-out out/koi \
   --count 2 \
@@ -169,15 +177,16 @@ Required flags:
 - `--prompt <text>`
 - `--video-out <path>`
 - `--aspect <ratio>`
-- `--session-path <path>`
 
 Optional flags:
 
+- `--session-path <path>`
 - `--extend <n>` defaults to `0`
 
 Important behavior:
 
 - `--aspect` is required here; there is no default
+- `--aspect` appends `aspect <ratio>` to the generation prompt
 - output paths are treated as base names and become numbered `.mp4` files
 - `--extend` applies to every returned video
 - this Meta flow currently returns 4 video variants
@@ -186,8 +195,7 @@ Generate videos directly, extend every returned variation once, and download
 all of them:
 
 ```bash
-meta-ai video create \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json video create \
   --prompt "a paper airplane gliding through clouds" \
   --video-out out/plane \
   --aspect 16:9 \
@@ -201,10 +209,10 @@ Download generated media from your Meta create and vibes history.
 Required flags:
 
 - `--out <path>`
-- `--session-path <path>`
 
 Optional flags:
 
+- `--session-path <path>`
 - `--delete`
 
 Important behavior:
@@ -218,8 +226,7 @@ Important behavior:
 Download all generated history media into a directory:
 
 ```bash
-meta-ai history download \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json history download \
   --out out/history
 ```
 
@@ -227,8 +234,7 @@ Download saved history media and then remove only the prompts whose files were
 written by that invocation:
 
 ```bash
-meta-ai history download \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json history download \
   --out out/history \
   --delete
 ```
@@ -239,8 +245,11 @@ Remove generated prompts from Meta history without downloading files.
 
 Required flags:
 
-- `--session-path <path>`
 - `--force`
+
+Optional flags:
+
+- `--session-path <path>`
 
 Important behavior:
 
@@ -252,8 +261,7 @@ Important behavior:
 Remove generated prompts from Meta history without downloading:
 
 ```bash
-meta-ai history clear \
-  --session-path ./.auth/meta-session.json \
+meta-ai --session-path ~/.auth/cliat@meta-ai.json history clear \
   --force
 ```
 
@@ -264,9 +272,9 @@ meta-ai history clear \
 - `--json` writes machine-readable output to stdout only
 - errors and progress messages go to stderr
 - file-producing commands require explicit output flags
-- `login` reports the saved session path and cookie count
+- `auth login` reports the saved session path and cookie count
 - `image create` reports the `conversationId`, downloaded images, and any
-  downloaded animation results
+  downloaded animation results, including saved paths and media ids
 - `video create` reports the `conversationId` and downloaded videos
 - `history download` reports downloaded files and any prompt ids deleted by
   `--delete`
@@ -277,6 +285,8 @@ meta-ai history clear \
 - `image create` defaults to `--count 1`
 - `image create` defaults to `--aspect 9:16`
 - `video create` requires `--aspect`
+- `--aspect` currently works by appending `aspect <ratio>` to the prompt while
+  still sending the legacy orientation metadata
 - `--extend` applies to every animated or generated video
 - output paths are treated as base names and become numbered files
 - `history download` paginates Meta's `mediaLibraryFeed` GraphQL connection
@@ -286,15 +296,17 @@ meta-ai history clear \
 ## Library usage
 
 The package root stays library-first. The `./cli` export is the Deno CLI entry.
-You can load the same storage-state JSON that `meta-ai login` writes.
+You can load the same session JSON that `meta-ai auth login` writes.
 
 ```ts
 import { MetaAiClient, type StorageState } from "jsr:@cliat/meta-ai";
 
 const storageState = JSON.parse(
-  await Deno.readTextFile("./.auth/meta-session.json"),
+  await Deno.readTextFile("./meta-session.json"),
 ) as StorageState;
 const client = new MetaAiClient(storageState);
+
+// The selected aspect is appended to the submitted prompt.
 const result = await client.createImage("a fox in snowfall", "1:1", 1);
 ```
 
@@ -304,12 +316,14 @@ Run locally:
 
 ```bash
 deno task check
-deno task build
+deno task compile
 ```
 
-Publish to JSR:
+Release and publish:
 
 ```bash
-deno publish --dry-run
+deno task publish:dry-run
+deno task version
+deno task compile
 deno publish
 ```

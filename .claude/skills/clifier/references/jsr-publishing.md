@@ -7,6 +7,15 @@ the package root and a CLI from `./cli`.
 
 - put JSR package metadata in `deno.json`
 - include `name`, `version`, and `exports`
+- keep `deno.json.version` as the single source of truth for the CLI version
+- expose a root `-v, --version` flag from the CLI entrypoint
+- include `deno compile` tasks for every Deno-supported target when shipping a
+  distributable CLI
+- include Deno helper task(s) for reporting the current version and comparing it
+  to the previous git ref used by CI
+- include a GitHub Actions workflow that triggers on `deno.json` version bumps,
+  uses the version helper task(s), compiles binaries, creates a GitHub Release,
+  and publishes to JSR
 - include a `license` field or publish a `LICENSE` file
 - keep the default `.` export for the library root, usually `./mod.ts`
 - export the CLI from `./cli`, usually `./cli.ts`
@@ -15,6 +24,12 @@ the package root and a CLI from `./cli`.
   I/O, auth persistence, and argv handling in the CLI layer
 - keep all imports ESM and use explicit relative file extensions such as
   `./mod.ts`
+- do not hard-code the CLI version string in `cli.ts`; read it from
+  `deno.json`
+- keep `compile` as the aggregate task that builds all supported targets, with
+  per-target tasks for direct use
+- keep workflow version detection in repo-owned Deno scripts/tasks instead of
+  inline shell parsing
 
 `mod.ts` is still the conventional Deno library root. Keep it thin by
 re-exporting the public library surface directly from files under `lib/`.
@@ -56,3 +71,5 @@ Before calling the package publish-ready:
 - local publishing uses `deno publish`
 - GitHub Actions can publish with OIDC after the repository is linked in JSR
   settings
+- a version-aware release workflow should skip pushes where `deno.json` changed
+  but `version` did not

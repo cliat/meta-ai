@@ -22,14 +22,19 @@ Typical local workflow:
 
 ```bash
 deno task check
+deno task version
+deno task version:compare -- HEAD~1
 deno task run --help
 ```
 
-If you want a local standalone binary, compile it into `bin/`:
+If you want standalone binaries, compile them into `bin/` for every supported
+target:
 
 ```bash
 deno task compile
 ```
+
+This emits target-specific binaries under `bin/`.
 
 The package root should stay importable as the client library:
 
@@ -65,4 +70,7 @@ deno task publish
 
 The included GitHub Actions workflow uses OIDC publishing. Before it works,
 create the package on JSR and link the GitHub repository in the package
-settings.
+settings. When `deno.json.version` changes on `main`, the workflow validates the
+package, compiles all supported target binaries into `bin/`, creates a GitHub
+Release tagged as `v<version>`, uploads the binaries, and publishes to JSR. The
+workflow reads version state through the included Deno version helper tasks.

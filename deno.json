@@ -1,6 +1,6 @@
 {
   "name": "@cliat/meta-ai",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -8,23 +8,32 @@
   },
   "publish": {
     "exclude": [
+      ".agents/",
       ".auth/",
+      ".claude/",
       ".playwright-cli/",
       "bin/",
       "history/",
       "out/",
-      "sess.json"
+      "sess.json",
+      "skills-lock.json"
     ]
   },
   "tasks": {
     "run": "deno run -A cli.ts",
     "check": "deno check cli.ts mod.ts",
-    "check:version": "deno run -A scripts/check_version.ts",
+    "version": "deno run -A ./scripts/version.ts current",
+    "version:compare": "deno run -A ./scripts/version.ts compare",
+    "version:github-output": "deno run -A ./scripts/version.ts github-output",
     "fmt": "deno fmt",
-    "build": "deno compile -A -o bin/meta-ai cli.ts",
-    "publish:check": "deno task check && deno task check:version && deno publish --dry-run",
-    "publish:dry-run": "deno task publish:check",
-    "publish": "deno task publish:check && deno publish"
+    "publish:dry-run": "deno publish --dry-run",
+    "publish": "deno publish",
+    "compile": "deno task compile:linux-x86_64 && deno task compile:linux-aarch64 && deno task compile:windows-x86_64 && deno task compile:darwin-x86_64 && deno task compile:darwin-aarch64",
+    "compile:linux-x86_64": "deno compile -A --target x86_64-unknown-linux-gnu -o ./bin/meta-ai-x86_64-unknown-linux-gnu cli.ts",
+    "compile:linux-aarch64": "deno compile -A --target aarch64-unknown-linux-gnu -o ./bin/meta-ai-aarch64-unknown-linux-gnu cli.ts",
+    "compile:windows-x86_64": "deno compile -A --target x86_64-pc-windows-msvc -o ./bin/meta-ai-x86_64-pc-windows-msvc.exe cli.ts",
+    "compile:darwin-x86_64": "deno compile -A --target x86_64-apple-darwin -o ./bin/meta-ai-x86_64-apple-darwin cli.ts",
+    "compile:darwin-aarch64": "deno compile -A --target aarch64-apple-darwin -o ./bin/meta-ai-aarch64-apple-darwin cli.ts"
   },
   "imports": {
     "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",

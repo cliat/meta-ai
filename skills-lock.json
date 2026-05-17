@@ -5,7 +5,7 @@
       "source": "popra/skills",
       "sourceType": "github",
       "skillPath": "clifier/SKILL.md",
-      "computedHash": "d793a9d41d31bbb3bbaa7561f86aac8dbfd7b8a6c7a638696279eb6203b2a671"
+      "computedHash": "91ed884a9ef3deeedd869ae18086caaf99e7c99331c52530a324089a42196efc"
     },
     "simplify": {
       "source": "brianlovin/claude-config",

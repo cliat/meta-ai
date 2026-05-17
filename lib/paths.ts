@@ -1,7 +1,9 @@
 import { basename, dirname, extname, join, resolve } from "@std/path";
 
+export const DEFAULT_SESSION_PATH = "~/.auth/cliat@meta-ai.json";
+
 export function resolvePath(path: string): string {
-  return resolve(path);
+  return resolve(expandHomeDirectory(path));
 }
 
 export async function ensureParentDir(filePath: string): Promise<string> {
@@ -55,4 +57,31 @@ export async function planNumberedOutputs(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function expandHomeDirectory(path: string): string {
+  if (path === "~") {
+    return getHomeDirectory();
+  }
+
+  if (path.startsWith("~/") || path.startsWith("~\\")) {
+    return join(getHomeDirectory(), path.slice(2));
+  }
+
+  return path;
+}
+
+function getHomeDirectory(): string {
+  const home = Deno.build.os === "windows"
+    ? Deno.env.get("USERPROFILE")
+    : Deno.env.get("HOME");
+
+  if (!home) {
+    const variable = Deno.build.os === "windows" ? "USERPROFILE" : "HOME";
+    throw new Error(
+      `Could not resolve "~" because the ${variable} environment variable is not set.`,
+    );
+  }
+
+  return home;
 }

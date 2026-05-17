@@ -41,7 +41,8 @@ publish and run notes:
   install command the user should run
 - avoid dumping full raw payloads unless the command is explicitly a raw or
   debug-style escape hatch
-- require an explicit output flag for file-producing commands
+- require an explicit output flag for file-producing commands, typically
+  `--out, -o`
 - avoid interactive prompts outside explicit auth/bootstrap commands
 
 ## Documentation Deliverables
@@ -65,12 +66,15 @@ If the tool depends on a non-bundled runtime dependency, document the install
 step in `README.md`, but do not rely on docs alone. The command should still
 detect the missing dependency and explain how to install it.
 
-When the tool uses browser-auth session reuse, make the required session path
-explicit in the docs and examples:
+When the tool uses browser-auth session reuse, make the documented default
+session path and override explicit in the docs and examples:
 
-- show `login --session-path <path>`
-- show the same `--session-path <path>` on later authenticated commands
-- do not imply a hidden default session location for this pattern
+- default to `~/.auth/<project_namespace>@<project_repo>.json`
+- for JSR names such as `@acme/my-tool`, show `~/.auth/acme@my-tool.json`
+- show that generated Deno tools resolve `~` through the OS home directory
+- show `--session-path, -s <path>` as an override on `login` and later
+  authenticated commands
+- put global flags such as `--json` and `--session-path` before the command path
 
 When commands compose through identifiers or machine-readable output, document
 that explicitly:
@@ -80,9 +84,8 @@ that explicitly:
 - show representative `--json` output shapes when useful
 - show the success and error shape when the CLI wraps provider responses
 
-Also generate a compact root `COMMANDS.md` as a CLI cheat sheet suitable to
-pass to another agent. Keep it short, operational, and optimized for fast
-scanning.
+Also generate a compact root `COMMANDS.md` as a CLI cheat sheet suitable to pass
+to another agent. Keep it short, operational, and optimized for fast scanning.
 
 If the package exposes both a client library and a CLI, keep this compact
 commands document focused on the CLI and put library usage in the overview or
@@ -93,8 +96,12 @@ That cheat sheet should:
 - prefer copy-pasteable commands over paragraphs
 - group commands by setup, auth, and main workflows when that improves scanning
 - start with `doctor` and auth/bootstrap commands when they exist
+- show long flag forms for clarity and mention useful shorthand aliases such as
+  `-s` for `--session-path` and `-o` for `--out`
 - show the main noun-then-verb commands for the common workflow
 - prefer `--json` in examples meant for agent use
+- place global flags before the noun/verb command path, while command-specific
+  flags such as `--out` stay near the command they configure
 - call out non-destructive defaults and any dangerous write commands
 - show how to invoke the CLI locally and, for JSR-ready tools, how to invoke it
   as `deno x jsr:@scope/package/cli`

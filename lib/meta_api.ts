@@ -16,6 +16,7 @@ const GRAPHQL_RATE_LIMIT_MAX_REQUESTS = 30;
 const GRAPHQL_RATE_LIMIT_WINDOW_MS = 60_000;
 const GRAPHQL_RETRY_ATTEMPTS = 3;
 const GRAPHQL_RETRY_BASE_DELAY_MS = 2_000;
+const DEFAULT_VIDEO_STATUS = "UNKNOWN";
 
 export type AspectRatio = "9:16" | "1:1" | "16:9";
 type MetaOrientation = "VERTICAL" | "SQUARE" | "LANDSCAPE";
@@ -104,14 +105,14 @@ export class MetaAiClient {
   ) {
     if (!hasMetaSessionCookie(storageState)) {
       throw new Error(
-        'The session file does not contain a usable Meta session cookie. Run "login" again.',
+        'The session file does not contain a usable Meta session cookie. Run "auth login" again.',
       );
     }
 
     this.cookieHeader = buildMetaCookieHeader(storageState);
     if (!this.cookieHeader) {
       throw new Error(
-        'The session file does not include Meta cookies. Run "login" again.',
+        'The session file does not include Meta cookies. Run "auth login" again.',
       );
     }
 
@@ -139,15 +140,17 @@ export class MetaAiClient {
       throw new Error("Image count must be a positive integer.");
     }
 
+    const promptWithAspect = appendAspectToPrompt(prompt, aspect);
+
     return await this.sendMessageOperation({
       conversationId: crypto.randomUUID(),
       currentBranchPath: "0",
-      content: prompt,
+      content: promptWithAspect,
       entryPoint: "KADABRA__UNKNOWN",
       imagineOperationRequest: {
         operation: "TEXT_TO_IMAGE",
         textToImageParams: {
-          prompt,
+          prompt: promptWithAspect,
           orientation: aspectToOrientation(aspect),
           numMedia: count,
         },
@@ -161,7 +164,10 @@ export class MetaAiClient {
     prompt: string,
     aspect?: AspectRatio,
   ): Promise<OperationDraftResult> {
-    const textToImageParams: Record<string, unknown> = { prompt };
+    const promptWithAspect = appendAspectToPrompt(prompt, aspect);
+    const textToImageParams: Record<string, unknown> = {
+      prompt: promptWithAspect,
+    };
     if (aspect) {
       textToImageParams.orientation = aspectToOrientation(aspect);
     }
@@ -169,7 +175,7 @@ export class MetaAiClient {
     return await this.sendMessageOperation({
       conversationId: crypto.randomUUID(),
       currentBranchPath: "0",
-      content: `Animate ${prompt}`,
+      content: `Animate ${promptWithAspect}`,
       entryPoint: "KADABRA__UNKNOWN",
       imagineOperationRequest: {
         operation: "TEXT_TO_VIDEO",
@@ -278,46 +284,9 @@ export class MetaAiClient {
     imagineOperationRequest: Record<string, unknown>;
     isNewConversation: boolean;
   }): Promise<OperationDraftResult> {
-    const userMessageId = crypto.randomUUID();
-    const assistantMessageId = crypto.randomUUID();
-    const turnId = crypto.randomUUID();
-    const promptSessionId = crypto.randomUUID();
-
-    const payload = {
-      doc_id: DOC_SEND_MESSAGE_STREAM,
-      variables: {
-        conversationId: input.conversationId,
-        content: input.content,
-        userMessageId,
-        assistantMessageId,
-        userUniqueMessageId: makeNumericMessageId(),
-        turnId,
-        mode: "create",
-        attachments: null,
-        mentions: null,
-        clippyIp: null,
-        isNewConversation: input.isNewConversation,
-        imagineOperationRequest: input.imagineOperationRequest,
-        qplJoinId: null,
-        clientTimezone: this.timezone,
-        developerOverridesForMessage: null,
-        clientLatitude: null,
-        clientLongitude: null,
-        devicePixelRatio: null,
-        entryPoint: input.entryPoint,
-        promptSessionId,
-        promptType: null,
-        conversationStarterId: null,
-        userAgent: this.userAgent,
-        currentBranchPath: input.currentBranchPath,
-        promptEditType: "new_message",
-        userLocale: "en-US",
-        userEventId: null,
-        requestedToolCall: null,
-      },
-    };
-
-    const raw = await this.postGraphqlSse(payload);
+    const raw = await this.postGraphqlSse(
+      this.buildSendMessagePayload(input),
+    );
     const assistant = getFinalAssistantMessage(raw);
 
     if (assistant.error) {
@@ -336,6 +305,49 @@ export class MetaAiClient {
     };
   }
 
+  private buildSendMessagePayload(input: {
+    conversationId: string;
+    currentBranchPath: string;
+    content: string;
+    entryPoint: string;
+    imagineOperationRequest: Record<string, unknown>;
+    isNewConversation: boolean;
+  }): Record<string, unknown> {
+    return {
+      doc_id: DOC_SEND_MESSAGE_STREAM,
+      variables: {
+        conversationId: input.conversationId,
+        content: input.content,
+        userMessageId: crypto.randomUUID(),
+        assistantMessageId: crypto.randomUUID(),
+        userUniqueMessageId: makeNumericMessageId(),
+        turnId: crypto.randomUUID(),
+        mode: "create",
+        attachments: null,
+        mentions: null,
+        clippyIp: null,
+        isNewConversation: input.isNewConversation,
+        imagineOperationRequest: input.imagineOperationRequest,
+        qplJoinId: null,
+        clientTimezone: this.timezone,
+        developerOverridesForMessage: null,
+        clientLatitude: null,
+        clientLongitude: null,
+        devicePixelRatio: null,
+        entryPoint: input.entryPoint,
+        promptSessionId: crypto.randomUUID(),
+        promptType: null,
+        conversationStarterId: null,
+        userAgent: this.userAgent,
+        currentBranchPath: input.currentBranchPath,
+        promptEditType: "new_message",
+        userLocale: "en-US",
+        userEventId: null,
+        requestedToolCall: null,
+      },
+    };
+  }
+
   private async fetchBatchedStatus(
     mediaIds: string[],
     conversationId: string,
@@ -348,19 +360,9 @@ export class MetaAiClient {
       },
     });
 
-    const events = parseSseEvents(raw);
     const latestById = new Map<string, StatusRecord>();
 
-    for (const event of events) {
-      if (event.event !== "next" || !event.data) {
-        continue;
-      }
-
-      const payload = safeJsonParse(event.data);
-      if (!payload) {
-        continue;
-      }
-
+    for (const payload of parseNextEventPayloads(raw)) {
       for (const statusRecord of collectStatusRecords(payload)) {
         const previous = latestById.get(statusRecord.mediaId);
         if (shouldReplaceStatusRecord(previous, statusRecord)) {
@@ -480,7 +482,7 @@ function collectStatusRecords(
   if (mediaId && (status || generatedVideo)) {
     found.push({
       mediaId,
-      status: status ?? "UNKNOWN",
+      status: status ?? DEFAULT_VIDEO_STATUS,
       generatedVideo,
     });
   }
@@ -493,16 +495,10 @@ function collectStatusRecords(
 }
 
 function getFinalAssistantMessage(rawSse: string): AssistantMessage {
-  const events = parseSseEvents(rawSse);
   const assistantMessages: AssistantMessage[] = [];
   const graphqlErrors: string[] = [];
 
-  for (const event of events) {
-    if (event.event !== "next" || !event.data) {
-      continue;
-    }
-
-    const payload = safeJsonParse(event.data);
+  for (const payload of parseNextEventPayloads(rawSse)) {
     graphqlErrors.push(...collectGraphqlErrorMessages(payload));
     const message = asOptionalRecord(payload?.data)?.sendMessageStream;
     if (!message || typeof message !== "object") {
@@ -530,6 +526,23 @@ function getFinalAssistantMessage(rawSse: string): AssistantMessage {
   }
 
   return finalMessage;
+}
+
+function parseNextEventPayloads(rawSse: string): Record<string, unknown>[] {
+  const payloads: Record<string, unknown>[] = [];
+
+  for (const event of parseSseEvents(rawSse)) {
+    if (event.event !== "next" || !event.data) {
+      continue;
+    }
+
+    const payload = safeJsonParse(event.data);
+    if (payload) {
+      payloads.push(payload);
+    }
+  }
+
+  return payloads;
 }
 
 function collectGraphqlErrorMessages(
@@ -679,4 +692,15 @@ function aspectToOrientation(aspect: AspectRatio): MetaOrientation {
     case "16:9":
       return "LANDSCAPE";
   }
+}
+
+function appendAspectToPrompt(
+  prompt: string,
+  aspect?: AspectRatio,
+): string {
+  if (!aspect) {
+    return prompt;
+  }
+
+  return `${prompt} aspect ${aspect}`;
 }

@@ -1,7 +1,6 @@
 # Command Cheat Sheet
 
-Replace this file with a terse, polished CLI cheat sheet for the generated
-tool.
+Replace this file with a terse, polished CLI cheat sheet for the generated tool.
 
 Optimize for a human or agent who needs the right command fast:
 
@@ -11,14 +10,20 @@ Optimize for a human or agent who needs the right command fast:
 - the main workflow commands grouped by noun or task
 - exact copy-pasteable commands, not abstract placeholders alone
 - only the required or high-value flags for each example
-- prefer short flag aliases such as `-h` when they exist and improve scanning;
-  use long flags when there is no short alias or clarity matters more
+- prefer long flags for clarity, but mention and use clear short aliases when
+  they improve scanning, such as `--session-path`/`-s` and `--out`/`-o`
+- put global flags before the command path, such as
+  `tool-name --json --session-path ~/.auth/acme@my-tool.json jobs get <job-id>`
+- keep command-specific flags after the command they configure, such as
+  `tool-name --json jobs download <job-id> --out ./downloads`
 - stable identifiers or output fields it emits
 - one short note when the command needs context
 - end each command line with a brief `#` comment describing what it does
 
-If the tool uses browser-auth session reuse, show `--session-path` as a required
-flag on `login` and every later authenticated command.
+If the tool uses browser-auth session reuse, document the default
+`~/.auth/<project_namespace>@<project_repo>.json` session path. For JSR names
+such as `@acme/my-tool`, use `~/.auth/acme@my-tool.json`. Show
+`--session-path, -s` as an override on `login` and later authenticated commands.
 
 If commands compose with each other, show which identifier or output field each
 later command consumes.
@@ -34,8 +39,11 @@ Example style:
 
 ```bash
 tool-name -h # display help
-tool-name posts list -j # list posts as JSON
-tool-name login --session-path session.json # create or refresh browser session
+deno task version # print the current package version
+deno task version:compare -- HEAD~1 # compare the current version to a previous ref
+tool-name --json posts list # list posts as JSON
+tool-name --json --session-path ~/.auth/acme@my-tool.json login # create or refresh browser session
+tool-name --json posts download <post-id> --out ./downloads # download post files
 ```
 
 If the package is intended to be published to JSR, also show the published

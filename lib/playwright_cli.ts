@@ -35,7 +35,7 @@ export function generatePlaywrightCliSessionName(prefix: string): string {
 export async function checkPlaywrightCliDependencies(): Promise<
   PlaywrightCliDependencyChecks
 > {
-  const executable = resolvePlaywrightCliExecutable();
+  const executable = resolvePlaywrightCliInvocation().display;
 
   try {
     await runPlaywrightCli(["--version"]);
@@ -154,10 +154,6 @@ export async function runPlaywrightCliCodeJson<T>(
 
 function withSessionArg(sessionName: string): string {
   return `-s=${sessionName}`;
-}
-
-function resolvePlaywrightCliExecutable(): string {
-  return resolvePlaywrightCliInvocation().display;
 }
 
 function resolvePlaywrightCliInvocation(): PlaywrightCliInvocation {

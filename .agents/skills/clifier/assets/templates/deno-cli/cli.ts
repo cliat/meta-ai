@@ -8,6 +8,9 @@
  */
 
 import { Command } from "@cliffy/command";
+import denoJson from "./deno.json" with { type: "json" };
+
+const VERSION = denoJson.version;
 
 function formatError(message: string, json: boolean): string {
   if (json) {
@@ -21,7 +24,8 @@ export function buildCli(): Command<any, any, any, any, any, any, any, any> {
   const cli = new Command()
     .noExit()
     .name("tool-name")
-    .version("0.1.0")
+    .version(VERSION)
+    .versionOption("-v, --version")
     .description("Replace with the website-specific summary.")
     .globalOption("--json", "Emit schema-stable JSON to stdout.")
     .action(() => {

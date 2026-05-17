@@ -62,23 +62,42 @@ Prefer product nouns, then verbs. Keep the style consistent across the tool.
 Favor commands and flags that users can predict from the product vocabulary
 without memorizing special agent-only abstractions.
 
+Give high-value explicit flags a short alias when the alias is obvious and does
+not conflict with another option. Keep the long form canonical in docs and help,
+but support ergonomic shorthands for repeated use, such as:
+
+- `--session-path, -s <path>`
+- `--out, -o <path>`
+- `--file, -f <path>`
+- `--limit, -l <count>`
+
+Do not force a shorthand for every option. Avoid unclear aliases, overloaded
+letters, and short forms for rarely used or dangerous flags.
+
 With `@cliffy/command`, model noun-then-verb commands as nested subcommands and
-shared flags such as `--json` as global options.
+shared flags such as `--json` and `--session-path` as global options. In docs,
+help examples, and agent-facing snippets, put global flags before the noun/verb
+command path. Keep command-specific flags after the command and arguments they
+configure.
 
 ```bash
 tool-name --json doctor
-tool-name --json login --session-path ./session.json
+tool-name --json --session-path ~/.auth/acme@my-tool.json auth
+tool-name --json --session-path ~/.auth/acme@my-tool.json auth login
+tool-name --json --session-path ~/.auth/acme@my-tool.json auth get-cookies --browser chrome --profile Default
 tool-name --json accounts list
 tool-name --json models list
 tool-name --json jobs create --input-file prompt.json
-tool-name --json jobs get <job-id>
+tool-name --json --session-path ~/.auth/acme@my-tool.json jobs get <job-id>
 tool-name --json jobs download <job-id> --out ./downloads
 tool-name --json media upload --file ./image.png
 tool-name --json request get /api/me
 ```
 
 Top-level verbs are still fine for cross-cutting commands such as `doctor` or
-`login`, or when the product vocabulary makes that clearly better.
+`login`, or when the product vocabulary makes that clearly better. When auth
+has multiple bootstrap methods, prefer an auth noun group such as `auth`,
+`auth login`, and `auth get-cookies`.
 
 Only keep `doctor` if the tool has real diagnostics to report. Only keep `login`
 if the site actually needs explicit auth or bootstrap setup.
@@ -114,9 +133,11 @@ that later commands can accept directly.
 - keep operational commands non-interactive after auth/bootstrap is complete
 - have create-style commands emit stable IDs
 - make later read, status, or download commands accept those same IDs directly
-- require an explicit `--out` flag for file-producing commands
-- when browser-auth reuse is required, make `--session-path` explicit on `login`
-  and later authenticated commands
+- require an explicit `--out, -o` flag for file-producing commands
+- when browser-auth reuse is required, default to
+  `~/.auth/<project_namespace>@<project_repo>.json` and keep
+  `--session-path, -s` as the explicit override on `login` and later
+  authenticated commands
 - avoid a generic `run-workflow` command when smaller commands compose better
 
 ## Text, JSON, Files, Exit Codes
@@ -195,18 +216,19 @@ Typical shape:
 
 ```txt
 Start with:
-tool-name --json login --session-path ./session.json
+tool-name --json --session-path ~/.auth/acme@my-tool.json auth
 tool-name --json accounts list
 
 Common workflow:
 tool-name --json jobs create ...
-tool-name --json jobs get <job-id>
+tool-name --json --session-path ~/.auth/acme@my-tool.json jobs get <job-id>
 tool-name --json jobs download <job-id> --out ./downloads
 
 Rules:
 
 - prefer installed `tool-name` on PATH
 - use `--json` when parsing output
+- use short aliases such as `-s` and `-o` when they are documented by `--help`
 - create drafts or non-destructive operations by default
 - do not publish, delete, retry, submit, or overwrite unless the user asked
 - use `request get ...` only when higher-level commands are missing

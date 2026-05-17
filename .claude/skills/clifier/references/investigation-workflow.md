@@ -5,10 +5,11 @@ Use this before implementing the generated CLI.
 ## Goal
 
 Determine whether the target workflow can run with direct HTTP calls, needs a
-hybrid auth/bootstrap approach, or requires Playwright runtime.
+hybrid auth/bootstrap approach, or requires `playwright-cli`-backed browser
+automation.
 
-Default to Chromium for investigation unless the user requests another browser
-or there is a strong, concrete compatibility reason to use a different one.
+Default to Chrome for investigation unless the user requests another browser or
+there is a strong, concrete compatibility reason to use a different one.
 
 ## Steps
 
@@ -25,8 +26,8 @@ or there is a strong, concrete compatibility reason to use a different one.
 9. Test whether those requests or message flows are reproducible outside the
    browser.
 10. If auth is involved, prove how saved browser-auth state maps into runtime
-   request inputs.
-11. Decide on `fetch`, hybrid, or Playwright runtime.
+    request inputs.
+11. Decide on `fetch`, hybrid, or `playwright-cli`-backed browser automation.
 12. Clean up temporary investigation session data.
 
 ## Use With playwright-cli
@@ -102,8 +103,8 @@ Ask for user assistance if the flow requires:
 
 ## Cleanup
 
-After investigation, remove temporary Playwright session artifacts created only
-for discovery, such as throwaway browser profiles or saved state files.
+After investigation, remove temporary browser session artifacts created only for
+discovery, such as throwaway browser profiles or saved state files.
 
 Do not keep investigation session data by default. Preserve session material
 only when:
@@ -114,14 +115,15 @@ only when:
 
 ## Decision Boundary
 
-Do not settle for Playwright runtime just because the site is JS-rendered.
+Do not settle for browser automation just because the site is JS-rendered.
 JS-rendered UIs often still rely on backend requests that can be driven with
 `fetch`.
 
-Do not choose Playwright runtime until the likely non-browser runtime paths have
-been checked carefully. That includes REST/XHR/fetch, GraphQL, WebSocket, SSE,
-polling, and any direct or signed download endpoints the site uses.
+Do not choose `playwright-cli`-backed browser automation until the likely
+non-browser runtime paths have been checked carefully. That includes
+REST/XHR/fetch, GraphQL, WebSocket, SSE, polling, and any direct or signed
+download endpoints the site uses.
 
 Do not settle for the hybrid path merely because login can be done in
-Playwright. The hybrid path is only proven when later authenticated requests
-work with documented `fetch` construction from saved session material.
+`playwright-cli`. The hybrid path is only proven when later authenticated
+requests work with documented `fetch` construction from saved session material.

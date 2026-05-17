@@ -35,7 +35,7 @@ export async function loadStorageState(
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) {
       throw new Error(
-        `Session file not found at ${resolvedPath}. Run "login --session-path ${resolvedPath}" first or pass an existing session file.`,
+        `Session file not found at ${resolvedPath}. Run "meta-ai auth login" first or pass --session-path with an existing session file.`,
       );
     }
     throw error;
@@ -64,7 +64,8 @@ export async function saveStorageState(
   sessionPath: string,
 ): Promise<string> {
   const resolvedPath = await ensureParentDir(sessionPath);
-  await Deno.writeTextFile(resolvedPath, JSON.stringify(state, null, 2));
+  const persistedState = sanitizeStorageState(state);
+  await Deno.writeTextFile(resolvedPath, JSON.stringify(persistedState, null, 2));
   return resolvedPath;
 }
 
@@ -78,9 +79,7 @@ export function buildMetaCookieHeader(state: StorageState): string {
 
 export function hasMetaSessionCookie(state: StorageState): boolean {
   return state.cookies.some((cookie) =>
-    cookie.name === "ecto_1_sess" &&
-    cookie.domain.includes("meta.ai") &&
-    cookie.value.length > 0
+    cookie.name === "ecto_1_sess" && isMetaCookieWithValue(cookie)
   );
 }
 
@@ -97,7 +96,7 @@ function isUsableMetaCookie(
   cookie: BrowserCookie,
   nowSeconds: number,
 ): boolean {
-  if (!cookie.value || !cookie.domain.includes("meta.ai")) {
+  if (!isMetaCookieWithValue(cookie)) {
     return false;
   }
 
@@ -106,4 +105,25 @@ function isUsableMetaCookie(
   }
 
   return cookie.expires > nowSeconds;
+}
+
+function sanitizeStorageState(state: StorageState): StorageState {
+  return {
+    cookies: state.cookies
+      .filter(isMetaCookieWithValue)
+      .map((cookie) => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+        expires: cookie.expires,
+        httpOnly: cookie.httpOnly,
+        secure: cookie.secure,
+        sameSite: cookie.sameSite,
+      })),
+  };
+}
+
+function isMetaCookieWithValue(cookie: BrowserCookie): boolean {
+  return cookie.domain.includes("meta.ai") && cookie.value.length > 0;
 }
