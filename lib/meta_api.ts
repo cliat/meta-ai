@@ -8,7 +8,7 @@ import {
 const GRAPHQL_ENDPOINT = "https://meta.ai/api/graphql";
 const META_REFERER = "https://meta.ai/";
 
-const DOC_SEND_MESSAGE_STREAM = "e6293355fcaad4a94bb65980c497519e";
+const DOC_SEND_MESSAGE_STREAM = "ec806ffcc368adb4260cc2c21985487a";
 const DOC_BATCHED_GENERATION_STATUS = "9928a9b87ec492a16326f18925191c0f";
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const POLL_JITTER_MS = 500;
@@ -165,11 +165,11 @@ export class MetaAiClient {
     aspect?: AspectRatio,
   ): Promise<OperationDraftResult> {
     const promptWithAspect = appendAspectToPrompt(prompt, aspect);
-    const textToImageParams: Record<string, unknown> = {
+    const textToVideoParams: Record<string, unknown> = {
       prompt: promptWithAspect,
     };
     if (aspect) {
-      textToImageParams.orientation = aspectToOrientation(aspect);
+      textToVideoParams.orientation = aspectToOrientation(aspect);
     }
 
     return await this.sendMessageOperation({
@@ -179,7 +179,7 @@ export class MetaAiClient {
       entryPoint: "KADABRA__UNKNOWN",
       imagineOperationRequest: {
         operation: "TEXT_TO_VIDEO",
-        textToImageParams,
+        textToVideoParams,
         requestId: null,
       },
       isNewConversation: true,

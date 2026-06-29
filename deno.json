@@ -1,6 +1,6 @@
 {
   "name": "@cliat/meta-ai",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -12,6 +12,7 @@
       ".auth/",
       ".claude/",
       ".playwright-cli/",
+      "assets/",
       "bin/",
       "history/",
       "out/",
