@@ -102,11 +102,22 @@ type AnimationResult = {
   }>;
 };
 
+type FrontendVideoCreateResult = {
+  ok: boolean;
+  reason?: string;
+  conversationId?: string | null;
+  videos?: Array<{
+    url: string;
+    thumbnail?: string | null;
+  }>;
+};
+
 const VERSION = denoConfig.version;
 const MUTATION_PAUSE_MS = 5_000;
 const MUTATION_PAUSE_JITTER_MS = 2_000;
 const LOGIN_POLL_INTERVAL_MS = 1_000;
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+const FRONTEND_VIDEO_VARIANT_COUNT = 4;
 
 export async function loginCommand(options: LoginOptions): Promise<void> {
   const sessionPath = resolveSessionPath(options.sessionPath);
@@ -121,9 +132,10 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   }
 
   const savedPath = await saveStorageState(state, sessionPath);
-  const cookieCount = state.cookies.filter((cookie) =>
-    cookie.domain.includes("meta.ai") && cookie.value.length > 0
-  ).length;
+  const cookieCount =
+    state.cookies.filter((cookie) =>
+      cookie.domain.includes("meta.ai") && cookie.value.length > 0
+    ).length;
   const result = {
     ok: true,
     command: "auth login",
@@ -222,12 +234,19 @@ export async function videoCreateCommand(
   const aspect = parseAspectRatio(options.aspect, false);
   const extendCount = options.extend ?? 0;
 
+  if (extendCount > 0) {
+    throw new Error(
+      "video create --extend is temporarily unavailable because Meta moved video generation to its frontend transport.",
+    );
+  }
+
   const { client, sessionPath } = await createClient(options.sessionPath);
-  const createResult = await client.createVideo(prompt, aspect);
-  const createdVideos = await client.waitForVideos(
-    createResult.videos,
-    createResult.conversationId,
+  const createResult = await createVideoWithFrontend(
+    sessionPath,
+    prompt,
+    aspect,
   );
+  const createdVideos = createResult.videos;
   const videoPaths = await planNumberedOutputs(
     outputVideo,
     createdVideos.length,
@@ -236,27 +255,7 @@ export async function videoCreateCommand(
 
   const videos = await mapSequentially(
     createdVideos,
-    async (initialVideo, index) => {
-      let currentBranchPath = createResult.branchPath;
-      let currentVideo = initialVideo;
-      const lineage: CompletedVideo[] = [currentVideo];
-
-      for (let i = 0; i < extendCount; i += 1) {
-        await pauseBetweenMutationJobs();
-        const extendedDraft = await client.extendVideo(
-          createResult.conversationId,
-          currentBranchPath,
-          currentVideo,
-        );
-        currentBranchPath = extendedDraft.branchPath;
-        currentVideo = await pickFirstCompletedVideo(
-          client,
-          extendedDraft.videos,
-          createResult.conversationId,
-        );
-        lineage.push(currentVideo);
-      }
-
+    async (currentVideo, index) => {
       const videoDownload = await downloadFile(
         currentVideo.url,
         videoPaths[index],
@@ -271,14 +270,14 @@ export async function videoCreateCommand(
         bytes: videoDownload.bytes,
         contentType: videoDownload.contentType,
         downloadableFileName: currentVideo.downloadableFileName ?? null,
-        sourceMediaUrl: initialVideo.sourceMedia?.url ?? null,
-        sourceThumbnail: initialVideo.sourceMedia?.thumbnail ?? null,
-        lineage: lineage.map((video, lineageIndex) => ({
-          step: lineageIndex === 0 ? "create" : `extend-${lineageIndex}`,
-          id: video.id,
-          url: video.url,
-          status: video.status,
-        })),
+        sourceMediaUrl: currentVideo.sourceMedia?.url ?? null,
+        sourceThumbnail: currentVideo.sourceMedia?.thumbnail ?? null,
+        lineage: [{
+          step: "create",
+          id: currentVideo.id,
+          url: currentVideo.url,
+          status: currentVideo.status,
+        }],
       };
     },
   );
@@ -690,6 +689,54 @@ async function createImageAnimations(
   }
 }
 
+async function createVideoWithFrontend(
+  sessionPath: string,
+  prompt: string,
+  aspect?: AspectRatio,
+): Promise<{
+  conversationId: string | null;
+  branchPath: string;
+  videos: CompletedVideo[];
+}> {
+  await ensurePlaywrightCliReady();
+
+  const sessionName = generatePlaywrightCliSessionName("meta-ai-video");
+  const frontendPrompt = formatFrontendVideoPrompt(prompt, aspect);
+
+  try {
+    await openPlaywrightCliSession(sessionName, { url: "about:blank" });
+    await loadPlaywrightCliState(sessionName, sessionPath);
+    await gotoPlaywrightCliSession(sessionName, "https://www.meta.ai/create");
+
+    const result = await runPlaywrightCliCodeJson<FrontendVideoCreateResult>(
+      sessionName,
+      buildFrontendVideoCreateCode(frontendPrompt),
+    );
+
+    if (!result.ok || !result.videos?.length) {
+      throw new Error(
+        result.reason ??
+          "Meta frontend did not return generated video URLs.",
+      );
+    }
+
+    return {
+      conversationId: result.conversationId ?? null,
+      branchPath: "0",
+      videos: result.videos.map((video, index) => ({
+        id: inferVideoIdFromUrl(video.url) ?? `frontend-video-${index + 1}`,
+        url: video.url,
+        thumbnail: video.thumbnail ?? null,
+        prompt,
+        status: "COMPLETE",
+        downloadableFileName: inferDownloadableFileName(video.url),
+      })),
+    };
+  } finally {
+    await closePlaywrightCliSession(sessionName).catch(() => undefined);
+  }
+}
+
 async function ensurePlaywrightCliReady(): Promise<void> {
   const dependencyChecks = await checkPlaywrightCliDependencies();
   if (
@@ -864,6 +911,139 @@ function buildGeneratedVideoDraft(
       thumbnail: sourceMedia.thumbnail ?? null,
     },
   };
+}
+
+function buildFrontendVideoCreateCode(prompt: string): string {
+  return `async (page) => {
+    const input = {
+      prompt: ${JSON.stringify(prompt)},
+      expectedVideos: ${FRONTEND_VIDEO_VARIANT_COUNT},
+      timeoutMs: ${15 * 60 * 1000},
+      stableMs: 15_000,
+    };
+
+    const collectVideos = async () => await page.evaluate(() => {
+      const seen = new Set();
+      return [...document.querySelectorAll("[data-testid='generated-video']")]
+        .map((element) => ({
+          url: element.getAttribute("data-video-url"),
+          thumbnail: element.getAttribute("data-video-thumbnail"),
+        }))
+        .filter((video) => {
+          if (!video.url || seen.has(video.url)) {
+            return false;
+          }
+          seen.add(video.url);
+          return true;
+        });
+    });
+
+    const collectPromptIds = async () => await page.evaluate(() =>
+      [...document.querySelectorAll('a[href*="/prompt/"]')]
+        .map((anchor) => anchor.href.match(/\\/prompt\\/([^/?#]+)/)?.[1] ?? null)
+        .filter((id) => id !== null)
+    );
+
+    await page.waitForSelector("[contenteditable=true]", { timeout: 30_000 });
+    const beforeVideos = new Set((await collectVideos()).map((video) => video.url));
+    const beforePromptIds = new Set(await collectPromptIds());
+
+    const textbox = page.locator("[contenteditable=true]").last();
+    await textbox.click();
+    await textbox.press("Control+A").catch(async () => {
+      await textbox.press("Meta+A");
+    });
+    await textbox.press("Backspace");
+    await textbox.type(input.prompt, { delay: 1 });
+
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("button")].some((button) =>
+        ((button.innerText || button.getAttribute("aria-label") || "").trim() === "Send") &&
+        !button.disabled
+      ),
+      null,
+      { timeout: 10_000 },
+    );
+
+    await page.getByRole("button", { name: "Send" }).last().click();
+
+    const deadline = Date.now() + input.timeoutMs;
+    let latest = [];
+    let lastCount = 0;
+    let stableSince = Date.now();
+
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(1_000);
+      latest = (await collectVideos()).filter((video) => !beforeVideos.has(video.url));
+
+      if (latest.length !== lastCount) {
+        lastCount = latest.length;
+        stableSince = Date.now();
+      }
+
+      if (latest.length >= input.expectedVideos) {
+        break;
+      }
+
+      if (latest.length > 0 && Date.now() - stableSince >= input.stableMs) {
+        break;
+      }
+    }
+
+    if (latest.length === 0) {
+      return {
+        ok: false,
+        reason: "Timed out waiting for Meta's frontend to expose generated video URLs.",
+      };
+    }
+
+    const afterPromptIds = await collectPromptIds();
+    const conversationId =
+      afterPromptIds.find((id) => !beforePromptIds.has(id)) ??
+      afterPromptIds[0] ??
+      null;
+
+    return {
+      ok: true,
+      conversationId,
+      videos: latest.slice(0, input.expectedVideos),
+    };
+  }`;
+}
+
+function formatFrontendVideoPrompt(
+  prompt: string,
+  aspect?: AspectRatio,
+): string {
+  const aspectSuffix = aspect ? ` aspect ${aspect}` : "";
+  return `Create a video: ${prompt}${aspectSuffix}`;
+}
+
+function inferVideoIdFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const encodedMetadata = parsed.searchParams.get("efg");
+    if (encodedMetadata) {
+      const metadata = JSON.parse(atob(encodedMetadata)) as {
+        xpv_asset_id?: unknown;
+      };
+      if (
+        typeof metadata.xpv_asset_id === "string" ||
+        typeof metadata.xpv_asset_id === "number"
+      ) {
+        return String(metadata.xpv_asset_id);
+      }
+    }
+
+    return parsed.pathname.split("/").at(-1)?.replace(/\.mp4$/i, "") ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function inferDownloadableFileName(url: string): string | null {
+  const id = inferVideoIdFromUrl(url);
+  return id ? `${id}.mp4` : null;
 }
 
 async function getCustomAnimateScriptPath(): Promise<string> {
