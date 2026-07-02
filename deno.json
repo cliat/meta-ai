@@ -26,6 +26,7 @@
     "version": "deno run -A ./scripts/version.ts current",
     "version:compare": "deno run -A ./scripts/version.ts compare",
     "version:github-output": "deno run -A ./scripts/version.ts github-output",
+    "install:local": "deno install -A --global --force --config ./deno.json --name meta-ai ./cli.ts",
     "fmt": "deno fmt",
     "publish:dry-run": "deno publish --dry-run",
     "publish": "deno publish",
