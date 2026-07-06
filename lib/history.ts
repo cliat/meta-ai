@@ -15,12 +15,15 @@ const META_GRAPHQL_URL = new URL("/api/graphql", META_REFERER).toString();
 const DOC_MEDIA_LIBRARY_FEED = "2cb548171fe613d789b1c888b465f4a2";
 const DOC_DELETE_CONVERSATION = "ad35bda8475e29ba4264ef0d6cc0958a";
 
-const HISTORY_PAGE_SIZE = 100;
+const HISTORY_PAGE_SIZE = 10;
+const HISTORY_FEED_MAX_ATTEMPTS = 4;
+const HISTORY_FEED_RETRY_DELAYS_MS = [5_000, 15_000, 30_000];
 const DELETE_SETTLE_MS = 400;
 const PROMPT_RESOLVE_SCAN_LIMIT_BYTES = 1_500_000;
 const PROMPT_RESOLVE_KEEP_TAIL_BYTES = 120_000;
 
 const PROMPT_ID_PATTERN = /\/prompt\/([0-9a-f-]{36})/i;
+const PROMPT_ID_GLOBAL_PATTERN = /\/prompt\/([0-9a-f-]{36})/gi;
 
 type HistoryFetchAuth = {
   cookieHeader: string;
@@ -175,14 +178,46 @@ export async function clearHistoryContent(
   }
 
   const auth = await loadHistoryFetchAuth(sessionPath);
-  const resolvedPromptIds = targetPromptIds ??
-    await collectAllHistoryPromptIds(auth);
+  if (!targetPromptIds) {
+    return await clearAllHistoryContent(auth);
+  }
 
   const removedPromptIds: string[] = [];
-  for (const promptId of resolvedPromptIds) {
+  for (const promptId of targetPromptIds) {
     await deleteHistoryPrompt(promptId, auth);
     removedPromptIds.push(promptId);
     await delay(DELETE_SETTLE_MS);
+  }
+
+  return { removedPromptIds };
+}
+
+async function clearAllHistoryContent(
+  auth: HistoryFetchAuth,
+): Promise<{ removedPromptIds: string[] }> {
+  const removedPromptIds: string[] = [];
+  const seenPromptIds = new Set<string>();
+
+  while (true) {
+    let promptIds = await collectPromptIdsFromCreatePage(auth);
+    promptIds = promptIds.filter((promptId) => !seenPromptIds.has(promptId));
+
+    if (promptIds.length === 0) {
+      if (removedPromptIds.length > 0) {
+        break;
+      }
+      promptIds = await collectAllHistoryPromptIds(auth);
+      if (promptIds.length === 0) {
+        break;
+      }
+    }
+
+    for (const promptId of promptIds) {
+      seenPromptIds.add(promptId);
+      await deleteHistoryPrompt(promptId, auth);
+      removedPromptIds.push(promptId);
+      await delay(DELETE_SETTLE_MS);
+    }
   }
 
   return { removedPromptIds };
@@ -198,6 +233,29 @@ async function collectAllHistoryPromptIds(
       items.flatMap((item) => item.promptId ? [item.promptId] : []),
     ),
   ].sort();
+}
+
+async function collectPromptIdsFromCreatePage(
+  auth: HistoryFetchAuth,
+): Promise<string[]> {
+  const response = await fetch(META_CREATE_URL, {
+    headers: {
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Cookie": auth.cookieHeader,
+      "Referer": META_CREATE_URL,
+      "User-Agent": auth.userAgent,
+    },
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const text = await response.text();
+  return [...new Set(
+    [...text.matchAll(PROMPT_ID_GLOBAL_PATTERN)].map((match) => match[1]),
+  )].sort();
 }
 
 async function loadHistoryFetchAuth(
@@ -262,6 +320,44 @@ async function fetchMediaLibraryPage(
   endCursor: string | null;
   hasNextPage: boolean;
 }> {
+  let lastRateLimitMessage: string | null = null;
+
+  for (let attempt = 0; attempt < HISTORY_FEED_MAX_ATTEMPTS; attempt += 1) {
+    const page = await tryFetchMediaLibraryPage(after, auth);
+    if ("rateLimitMessage" in page) {
+      lastRateLimitMessage = page.rateLimitMessage;
+      const retryDelay = HISTORY_FEED_RETRY_DELAYS_MS[attempt];
+      if (retryDelay !== undefined) {
+        await delay(retryDelay);
+        continue;
+      }
+    }
+
+    if ("items" in page) {
+      return page;
+    }
+
+    break;
+  }
+
+  throw new Error(
+    `Meta history feed request was rate limited after ${HISTORY_FEED_MAX_ATTEMPTS} attempts. Wait a few minutes and retry.\n${
+      lastRateLimitMessage ?? "Rate limit exceeded"
+    }`,
+  );
+}
+
+async function tryFetchMediaLibraryPage(
+  after: string | null,
+  auth: HistoryFetchAuth,
+): Promise<
+  | {
+    items: FeedHistoryItem[];
+    endCursor: string | null;
+    hasNextPage: boolean;
+  }
+  | { rateLimitMessage: string }
+> {
   const response = await fetch(META_GRAPHQL_URL, {
     method: "POST",
     headers: buildHistoryGraphqlHeaders(auth),
@@ -280,6 +376,9 @@ async function fetchMediaLibraryPage(
 
   const text = await response.text();
   if (!response.ok) {
+    if (response.status === 429 || isRateLimitMessage(text)) {
+      return { rateLimitMessage: text.slice(0, 600) };
+    }
     throw new Error(
       `Meta history feed request failed with status ${response.status}.\n${
         text.slice(0, 600)
@@ -290,6 +389,9 @@ async function fetchMediaLibraryPage(
   const parsed = safeJsonParse(text);
   const topLevelError = firstErrorMessage(parsed);
   if (topLevelError) {
+    if (isRateLimitMessage(topLevelError)) {
+      return { rateLimitMessage: topLevelError };
+    }
     throw new Error(`Meta history feed request failed: ${topLevelError}`);
   }
 
@@ -569,6 +671,10 @@ function firstErrorMessage(value: unknown): string | null {
   }
 
   return null;
+}
+
+function isRateLimitMessage(value: string): boolean {
+  return value.toLowerCase().includes("rate limit");
 }
 
 function safeJsonParse(value: string): unknown {
