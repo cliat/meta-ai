@@ -12,7 +12,7 @@ const META_REFERER = "https://meta.ai/";
 const META_CREATE_URL = new URL("/create", META_REFERER).toString();
 const META_GRAPHQL_URL = new URL("/api/graphql", META_REFERER).toString();
 
-const DOC_MEDIA_LIBRARY_FEED = "b87b0b6ed5a4909f1429da32b899a8a7";
+const DOC_MEDIA_LIBRARY_FEED = "2cb548171fe613d789b1c888b465f4a2";
 const DOC_DELETE_CONVERSATION = "ad35bda8475e29ba4264ef0d6cc0958a";
 
 const HISTORY_PAGE_SIZE = 100;
@@ -269,9 +269,11 @@ async function fetchMediaLibraryPage(
       doc_id: DOC_MEDIA_LIBRARY_FEED,
       variables: {
         after,
-        filters: null,
+        filter: null,
         first: HISTORY_PAGE_SIZE,
+        isV1Feed: false,
         searchQuery: null,
+        shape: "v2",
       },
     }),
   });
