@@ -149,7 +149,7 @@ export async function runPlaywrightCliCodeJson<T>(
     "run-code",
     code,
   ]);
-  return parsePlaywrightCliJsonResult<T>(result.stdout);
+  return parsePlaywrightCliJsonResult<T>(result.stdout, result.stderr);
 }
 
 function withSessionArg(sessionName: string): string {
@@ -239,12 +239,16 @@ function isFile(path: string): boolean {
   }
 }
 
-function parsePlaywrightCliJsonResult<T>(stdout: string): T {
+function parsePlaywrightCliJsonResult<T>(stdout: string, stderr: string): T {
   const match = stdout.match(
     /### Result\s*[\r\n]+([\s\S]*?)(?:[\r\n]+### [^\r\n]+|$)/,
   );
   if (!match) {
-    throw new Error("playwright-cli did not return a parsable result block.");
+    throw new Error(
+      `playwright-cli did not return a parsable result block.${
+        formatPlaywrightCliOutputDetail(stdout, stderr)
+      }`,
+    );
   }
 
   const raw = match[1].trim();
@@ -261,4 +265,28 @@ function parsePlaywrightCliJsonResult<T>(stdout: string): T {
       }`,
     );
   }
+}
+
+function formatPlaywrightCliOutputDetail(
+  stdout: string,
+  stderr: string,
+): string {
+  const detail = [
+    formatOutputSnippet("stdout", stdout),
+    formatOutputSnippet("stderr", stderr),
+  ].filter(Boolean).join(" ");
+  return detail ? ` ${detail}` : "";
+}
+
+function formatOutputSnippet(label: string, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const maxLength = 1_000;
+  const snippet = trimmed.length > maxLength
+    ? `${trimmed.slice(0, maxLength)}...`
+    : trimmed;
+  return `${label}: ${snippet}`;
 }

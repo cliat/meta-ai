@@ -944,7 +944,87 @@ function buildFrontendVideoCreateCode(prompt: string): string {
         .filter((id) => id !== null)
     );
 
-    await page.waitForSelector("[contenteditable=true]", { timeout: 30_000 });
+    const loginRequired = async () => await page.evaluate(() => {
+      const visibleText = document.body?.innerText ?? "";
+      const hasLoginDialog = [...document.querySelectorAll('[role="dialog"]')]
+        .some((dialog) => /log in to meta ai/i.test(dialog.textContent ?? ""));
+      const hasLoginButton = [...document.querySelectorAll("button")]
+        .some((button) =>
+          /^(log in|sign up)$/i.test(
+            (button.innerText || button.getAttribute("aria-label") || "").trim(),
+          )
+        );
+      return hasLoginDialog ||
+        (hasLoginButton && /log in or create an account/i.test(visibleText));
+    });
+
+    const waitForComposerOrLogin = async () => {
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        if (await loginRequired()) {
+          return "login";
+        }
+
+        if (await page.locator("[contenteditable=true]").count() > 0) {
+          return "composer";
+        }
+
+        await page.waitForTimeout(500);
+      }
+      return "timeout";
+    };
+
+    const clickComposerSubmit = async () => await page.evaluate(() => {
+      const textbox = [...document.querySelectorAll("[contenteditable=true]")]
+        .at(-1);
+      if (!textbox) {
+        return { ok: false, reason: "Composer textbox was not found." };
+      }
+
+      let container = textbox.parentElement;
+      for (let i = 0; i < 5 && container; i += 1) {
+        const buttons = [...container.querySelectorAll("button")]
+          .filter((button) => {
+            const rect = button.getBoundingClientRect();
+            return !button.disabled && rect.width > 0 && rect.height > 0;
+          });
+
+        const followingButtons = buttons.filter((button) =>
+          Boolean(
+            textbox.compareDocumentPosition(button) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+          )
+        );
+        const submitButton = followingButtons.at(-1);
+        if (submitButton) {
+          submitButton.click();
+          return { ok: true };
+        }
+
+        container = container.parentElement;
+      }
+
+      return {
+        ok: false,
+        reason: "Enabled composer submit button was not found.",
+      };
+    });
+
+    const pageState = await waitForComposerOrLogin();
+    if (pageState === "login") {
+      return {
+        ok: false,
+        reason: "Meta requires login. Re-run auth login with this --session-path, then retry video create.",
+      };
+    }
+
+    if (pageState !== "composer") {
+      return {
+        ok: false,
+        reason: \`Meta did not show the create composer. Current page: \${page.url()} (\${await page.title()}). Re-run auth login if this is a login or landing page.\`,
+      };
+    }
+
     const beforeVideos = new Set((await collectVideos()).map((video) => video.url));
     const beforePromptIds = new Set(await collectPromptIds());
 
@@ -956,16 +1036,20 @@ function buildFrontendVideoCreateCode(prompt: string): string {
     await textbox.press("Backspace");
     await textbox.type(input.prompt, { delay: 1 });
 
-    await page.waitForFunction(() =>
-      [...document.querySelectorAll("button")].some((button) =>
-        ((button.innerText || button.getAttribute("aria-label") || "").trim() === "Send") &&
-        !button.disabled
-      ),
-      null,
-      { timeout: 10_000 },
-    );
+    const submit = await clickComposerSubmit();
+    if (!submit.ok) {
+      return {
+        ok: false,
+        reason: submit.reason,
+      };
+    }
 
-    await page.getByRole("button", { name: "Send" }).last().click();
+    if (await loginRequired()) {
+      return {
+        ok: false,
+        reason: "Meta requires login before generation can start. Re-run auth login with this --session-path, then retry video create.",
+      };
+    }
 
     const deadline = Date.now() + input.timeoutMs;
     let latest = [];
