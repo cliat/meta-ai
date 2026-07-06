@@ -954,8 +954,16 @@ function buildFrontendVideoCreateCode(prompt: string): string {
             (button.innerText || button.getAttribute("aria-label") || "").trim(),
           )
         );
+      const hasLoggedInAccountControl = [...document.querySelectorAll("button")]
+        .some((button) =>
+          /^(account|profile)$/i.test(
+            (button.innerText || button.getAttribute("aria-label") || "").trim(),
+          )
+        );
       return hasLoginDialog ||
-        (hasLoginButton && /log in or create an account/i.test(visibleText));
+        (hasLoginButton &&
+          (!hasLoggedInAccountControl ||
+            /log in or create an account/i.test(visibleText)));
     });
 
     const waitForComposerOrLogin = async () => {
@@ -974,6 +982,41 @@ function buildFrontendVideoCreateCode(prompt: string): string {
       return "timeout";
     };
 
+    const setComposerPrompt = async () => {
+      const textbox = page.locator("[contenteditable=true]").last();
+      await textbox.click();
+      await textbox.fill(input.prompt).catch(async () => {
+        await textbox.press("Control+A").catch(async () => {
+          await textbox.press("Meta+A");
+        });
+        await textbox.press("Backspace");
+        await textbox.type(input.prompt, { delay: 1 });
+      });
+
+      await page.evaluate((prompt) => {
+        const textbox = [...document.querySelectorAll("[contenteditable=true]")]
+          .at(-1);
+        if (!textbox || (textbox.textContent ?? "").trim() === prompt.trim()) {
+          return;
+        }
+
+        textbox.textContent = prompt;
+        textbox.dispatchEvent(new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          data: prompt,
+          inputType: "insertText",
+        }));
+        textbox.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          data: prompt,
+          inputType: "insertText",
+        }));
+      }, input.prompt);
+
+      await page.waitForTimeout(500);
+    };
+
     const clickComposerSubmit = async () => await page.evaluate(() => {
       const textbox = [...document.querySelectorAll("[contenteditable=true]")]
         .at(-1);
@@ -981,32 +1024,66 @@ function buildFrontendVideoCreateCode(prompt: string): string {
         return { ok: false, reason: "Composer textbox was not found." };
       }
 
-      let container = textbox.parentElement;
-      for (let i = 0; i < 5 && container; i += 1) {
-        const buttons = [...container.querySelectorAll("button")]
-          .filter((button) => {
-            const rect = button.getBoundingClientRect();
-            return !button.disabled && rect.width > 0 && rect.height > 0;
-          });
+      const textboxRect = textbox.getBoundingClientRect();
+      const textboxCenterY = textboxRect.top + textboxRect.height / 2;
+      const visibleButtons = [...document.querySelectorAll("button")]
+        .map((button) => {
+          const rect = button.getBoundingClientRect();
+          const text =
+            (button.innerText || button.getAttribute("aria-label") || "")
+              .trim();
+          return {
+            button,
+            text,
+            disabled: button.disabled,
+            rect,
+            followsTextbox: Boolean(
+              textbox.compareDocumentPosition(button) &
+                Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+          };
+        })
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0);
 
-        const followingButtons = buttons.filter((button) =>
-          Boolean(
-            textbox.compareDocumentPosition(button) &
-              Node.DOCUMENT_POSITION_FOLLOWING,
-          )
-        );
-        const submitButton = followingButtons.at(-1);
-        if (submitButton) {
-          submitButton.click();
-          return { ok: true };
-        }
+      const composerButtons = visibleButtons
+        .filter(({ disabled, followsTextbox, rect, text }) =>
+          !disabled &&
+          followsTextbox &&
+          /^(send|create)$/i.test(text) &&
+          Math.abs((rect.top + rect.height / 2) - textboxCenterY) < 140
+        )
+        .sort((left, right) => {
+          const leftPriority = /^send$/i.test(left.text) ? 0 : 1;
+          const rightPriority = /^send$/i.test(right.text) ? 0 : 1;
+          return leftPriority - rightPriority ||
+            Math.abs(left.rect.left - textboxRect.right) -
+              Math.abs(right.rect.left - textboxRect.right);
+        });
 
-        container = container.parentElement;
+      const submitButton = composerButtons[0]?.button;
+      if (submitButton) {
+        submitButton.click();
+        return { ok: true };
       }
 
+      const debugButtons = visibleButtons
+        .filter(({ rect }) =>
+          Math.abs((rect.top + rect.height / 2) - textboxCenterY) < 180
+        )
+        .map(({ text, disabled, rect, followsTextbox }) => ({
+          text,
+          disabled,
+          followsTextbox,
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        }));
+      const textboxText = (textbox.textContent ?? "").trim();
       return {
         ok: false,
-        reason: "Enabled composer submit button was not found.",
+        reason:
+          \`Enabled composer submit button was not found. Textbox text length: \${textboxText.length}. Composer buttons: \${JSON.stringify(debugButtons)}\`,
       };
     });
 
@@ -1028,13 +1105,7 @@ function buildFrontendVideoCreateCode(prompt: string): string {
     const beforeVideos = new Set((await collectVideos()).map((video) => video.url));
     const beforePromptIds = new Set(await collectPromptIds());
 
-    const textbox = page.locator("[contenteditable=true]").last();
-    await textbox.click();
-    await textbox.press("Control+A").catch(async () => {
-      await textbox.press("Meta+A");
-    });
-    await textbox.press("Backspace");
-    await textbox.type(input.prompt, { delay: 1 });
+    await setComposerPrompt();
 
     const submit = await clickComposerSubmit();
     if (!submit.ok) {
